@@ -22,7 +22,7 @@ import { useTheme } from './hooks/use-theme';
 import { ApiError, api } from './lib/api';
 import { layoutGraph } from './lib/layout';
 import { useGraphStore } from './store/graph-store';
-import type { LimitsSummary, QueryHistory } from './types/api';
+import type { LimitsSummary, QueryHistory, SearchChunk } from './types/api';
 
 export function App() {
   const identity = useGraphStore((state) => state.identity);
@@ -210,7 +210,12 @@ export function App() {
     };
   }, [setSources]);
 
-  async function search(query: string, extendedSearch: boolean): Promise<void> {
+  async function search(
+    query: string,
+    extendedSearch: boolean,
+    sensitivity?: 'low' | 'medium' | 'high',
+    scope?: 'narrow' | 'normal' | 'wide',
+  ): Promise<void> {
     if (!graph) return;
     try {
       setResults(
@@ -219,6 +224,8 @@ export function App() {
           query,
           useGraphStore.getState().selectedNodeIds,
           extendedSearch,
+          sensitivity,
+          scope,
         ),
       );
       setHistory(await api.history());
@@ -321,12 +328,24 @@ export function App() {
   }
 
   const currentNode = graph?.nodes.find((node) => node.id === editingNodeId);
-  const sourceMatches = activeSourceId
-    ? (results?.results
-        .flatMap((result) => result.chunks)
-        .flatMap((chunk) => [chunk, ...(chunk.extendedContext ?? [])])
-        .filter((chunk) => chunk.sourceId === activeSourceId) ?? [])
-    : [];
+  const sourceMatches =
+    activeSourceId && results
+      ? (() => {
+          const allQueryChunks = results.results
+            .flatMap((result) => result.chunks)
+            .flatMap((chunk) => [chunk, ...(chunk.extendedContext ?? [])])
+            .filter((chunk) => chunk.sourceId === activeSourceId);
+
+          const unique = new Map<string, SearchChunk>();
+          for (const chunk of allQueryChunks) {
+            const key = `${chunk.sourceId}:${chunk.startChar}:${chunk.endChar}`;
+            if (!unique.has(key) || chunk.kind === 'MATCH') {
+              unique.set(key, chunk);
+            }
+          }
+          return [...unique.values()];
+        })()
+      : [];
 
   return (
     <main className="app-shell">

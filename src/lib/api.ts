@@ -5,6 +5,8 @@ import type {
   Identity,
   QueryHistory,
   SearchResponse,
+  SearchScope,
+  SearchSensitivity,
   Source,
   SubscriptionTier,
   LimitsSummary,
@@ -149,6 +151,8 @@ export const api = {
     query: string,
     selectedNodeIds: string[],
     extendedSearch = false,
+    sensitivity?: SearchSensitivity,
+    scope?: SearchScope,
   ) =>
     request<SearchResponse>('/search', {
       method: 'POST',
@@ -157,6 +161,8 @@ export const api = {
         query,
         selectedNodeIds,
         extendedSearch,
+        ...(sensitivity ? { sensitivity } : {}),
+        ...(scope ? { scope } : {}),
       }),
     }),
   history: () => request<QueryHistory[]>('/queries'),
@@ -166,6 +172,11 @@ export const api = {
       body: JSON.stringify(values),
     }),
   source: (id: string) => request<Source>(`/sources/${id}`),
+  sourceDownloadUrl: (id: string) => `${apiUrl}/sources/${id}/download`,
+  sourceFileUrl: (id: string) =>
+    request<{ url: string; direct: boolean; fileName: string }>(
+      `/sources/${id}/file-url`,
+    ),
   uploadSource: (graphId: string, nodeId: string, file: File) => {
     const body = new FormData();
     body.set('graphId', graphId);

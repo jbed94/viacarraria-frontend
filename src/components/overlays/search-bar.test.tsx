@@ -43,7 +43,12 @@ describe('SearchBar', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
-    expect(onSearch).toHaveBeenCalledWith('adjacent context', true);
+    expect(onSearch).toHaveBeenCalledWith(
+      'adjacent context',
+      true,
+      'medium',
+      'normal',
+    );
   });
 
   it('hides extended search for anonymous users', () => {
@@ -63,6 +68,37 @@ describe('SearchBar', () => {
     );
     expect(description).toHaveTextContent(
       'Search adjacent topics for up to 3 related contexts',
+    );
+  });
+
+  it('allows customizing sensitivity and scope via options drawer', async () => {
+    const onSearch = vi.fn().mockResolvedValue(undefined);
+    render(<SearchBar onSearch={onSearch} tier="PRO" />);
+
+    // Open options drawer
+    fireEvent.click(screen.getByRole('button', { name: 'Search options' }));
+
+    // Sensitivity options: Low, Medium, High
+    const highSensitivityBtn = screen.getByRole('radio', { name: 'High' });
+    fireEvent.click(highSensitivityBtn);
+    expect(highSensitivityBtn).toHaveAttribute('aria-checked', 'true');
+
+    // Scope options: Narrow, Normal, Wide
+    const wideScopeBtn = screen.getByRole('radio', { name: 'Wide' });
+    fireEvent.click(wideScopeBtn);
+    expect(wideScopeBtn).toHaveAttribute('aria-checked', 'true');
+
+    // Type query and submit
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'distributed consensus' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(onSearch).toHaveBeenCalledWith(
+      'distributed consensus',
+      false,
+      'high',
+      'wide',
     );
   });
 });

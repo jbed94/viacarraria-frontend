@@ -85,10 +85,15 @@ export type SearchChunk = {
   startChar: number;
   endChar: number;
   pageNum: number;
+  coordinates?: number[];
+  elementType?: string;
   score: number;
   kind?: 'MATCH' | 'EXTENDED';
   extendedContext?: SearchChunk[];
 };
+
+export type SearchSensitivity = 'low' | 'medium' | 'high';
+export type SearchScope = 'narrow' | 'normal' | 'wide';
 
 export type SearchResponse = {
   queryId: string;
@@ -97,6 +102,8 @@ export type SearchResponse = {
   remaining: number;
   extendedSearch: boolean;
   extendedContextCount: number;
+  sensitivity?: SearchSensitivity;
+  scope?: SearchScope;
 };
 
 export type QueryHistory = {

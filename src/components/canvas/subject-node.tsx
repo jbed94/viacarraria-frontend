@@ -36,6 +36,11 @@ export function SubjectNode({ id, data }: NodeProps) {
   const updateNodeInternals = useUpdateNodeInternals();
 
   const sources = graph?.sources.filter((source) => source.nodeId === id) ?? [];
+  const hasPdf = sources.some(
+    (source) =>
+      source.fileType === 'application/pdf' ||
+      source.name.toLowerCase().endsWith('.pdf'),
+  );
   const match = results?.results.find((result) => result.nodeId === id);
   const isMatched = Boolean(match);
   const isExpanded = expandedNodeIds.includes(id);
@@ -124,6 +129,25 @@ export function SubjectNode({ id, data }: NodeProps) {
           ) : null}
         </span>
         <strong>{subject.title}</strong>
+        {sources.length > 0 ? (
+          <span className="node-attachments">
+            <span
+              className="source-count-badge"
+              title={`${sources.length} ${sources.length === 1 ? 'source' : 'sources'} attached`}
+            >
+              <FileText size={10} aria-hidden="true" />
+              <span>{sources.length}</span>
+            </span>
+            {hasPdf ? (
+              <span
+                className="pdf-attachment-badge"
+                title="PDF document attached"
+              >
+                PDF
+              </span>
+            ) : null}
+          </span>
+        ) : null}
       </button>
       {mode === 'CONTEXT_SELECTION' ? (
         <label className="node-selector nodrag nopan">
@@ -237,6 +261,10 @@ export function SubjectNode({ id, data }: NodeProps) {
                 >
                   <FileText size={14} />
                   <span>{source.name}</span>
+                  {source.fileType === 'application/pdf' ||
+                  source.name.toLowerCase().endsWith('.pdf') ? (
+                    <span className="source-pdf-tag">PDF</span>
+                  ) : null}
                   <small
                     className={`source-status ${source.status.toLowerCase()}`}
                   >

@@ -1,13 +1,22 @@
-import { Search, X } from 'lucide-react';
+import { Search, SlidersHorizontal, X } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGraphStore } from '../../store/graph-store';
-import type { SubscriptionTier } from '../../types/api';
+import type {
+  SearchScope,
+  SearchSensitivity,
+  SubscriptionTier,
+} from '../../types/api';
 
 type SearchBarProps = {
-  onSearch: (query: string, extendedSearch: boolean) => Promise<void>;
+  onSearch: (
+    query: string,
+    extendedSearch: boolean,
+    sensitivity?: SearchSensitivity,
+    scope?: SearchScope,
+  ) => Promise<void>;
   queryForEdit?: string;
   tier?: SubscriptionTier;
 };
@@ -16,6 +25,9 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [extendedSearch, setExtendedSearch] = useState(false);
+  const [sensitivity, setSensitivity] = useState<SearchSensitivity>('medium');
+  const [scope, setScope] = useState<SearchScope>('normal');
+  const [showOptions, setShowOptions] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
   const mode = useGraphStore((state) => state.mode);
   const setMode = useGraphStore((state) => state.setMode);
@@ -34,7 +46,7 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
     if (!query.trim() || isSubmitting) return;
     setSubmitting(true);
     try {
-      await onSearch(query.trim(), extendedSearch);
+      await onSearch(query.trim(), extendedSearch, sensitivity, scope);
     } finally {
       setSubmitting(false);
     }
@@ -45,11 +57,115 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
     setResults(undefined);
   }
 
+  const sensitivityDesc =
+    sensitivity === 'low'
+      ? t('sensitivityLowDesc')
+      : sensitivity === 'high'
+        ? t('sensitivityHighDesc')
+        : t('sensitivityMediumDesc');
+
+  const scopeDesc =
+    scope === 'narrow'
+      ? t('scopeNarrowDesc')
+      : scope === 'wide'
+        ? t('scopeWideDesc')
+        : t('scopeNormalDesc');
+
+  const isCustomOptions = sensitivity !== 'medium' || scope !== 'normal';
+
   return (
     <form
       className="search-bar overlay-interactive"
       onSubmit={(event) => void submit(event)}
     >
+      {showOptions ? (
+        <div
+          className="search-options-drawer"
+          role="region"
+          aria-label={t('queryOptions')}
+        >
+          <div className="search-option-group">
+            <div className="search-option-header">
+              <span className="search-option-label">{t('sensitivity')}</span>
+              <span className="search-option-desc">{sensitivityDesc}</span>
+            </div>
+            <div
+              className="search-segmented-control"
+              role="radiogroup"
+              aria-label={t('sensitivity')}
+            >
+              <button
+                type="button"
+                className={`segmented-btn ${sensitivity === 'low' ? 'active' : ''}`}
+                onClick={() => setSensitivity('low')}
+                aria-checked={sensitivity === 'low'}
+                role="radio"
+              >
+                {t('sensitivityLow')}
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${sensitivity === 'medium' ? 'active' : ''}`}
+                onClick={() => setSensitivity('medium')}
+                aria-checked={sensitivity === 'medium'}
+                role="radio"
+              >
+                {t('sensitivityMedium')}
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${sensitivity === 'high' ? 'active' : ''}`}
+                onClick={() => setSensitivity('high')}
+                aria-checked={sensitivity === 'high'}
+                role="radio"
+              >
+                {t('sensitivityHigh')}
+              </button>
+            </div>
+          </div>
+
+          <div className="search-option-group">
+            <div className="search-option-header">
+              <span className="search-option-label">{t('scope')}</span>
+              <span className="search-option-desc">{scopeDesc}</span>
+            </div>
+            <div
+              className="search-segmented-control"
+              role="radiogroup"
+              aria-label={t('scope')}
+            >
+              <button
+                type="button"
+                className={`segmented-btn ${scope === 'narrow' ? 'active' : ''}`}
+                onClick={() => setScope('narrow')}
+                aria-checked={scope === 'narrow'}
+                role="radio"
+              >
+                {t('scopeNarrow')}
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${scope === 'normal' ? 'active' : ''}`}
+                onClick={() => setScope('normal')}
+                aria-checked={scope === 'normal'}
+                role="radio"
+              >
+                {t('scopeNormal')}
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${scope === 'wide' ? 'active' : ''}`}
+                onClick={() => setScope('wide')}
+                aria-checked={scope === 'wide'}
+                role="radio"
+              >
+                {t('scopeWide')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <Search size={19} aria-hidden="true" />
       <input
         value={query}
@@ -71,6 +187,16 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
           <X size={17} />
         </button>
       ) : null}
+      <button
+        type="button"
+        className={`icon-button search-options-btn ${showOptions ? 'active' : ''} ${isCustomOptions ? 'customized' : ''}`}
+        title={t('queryOptions')}
+        aria-label={t('queryOptions')}
+        aria-expanded={showOptions}
+        onClick={() => setShowOptions(!showOptions)}
+      >
+        <SlidersHorizontal size={16} />
+      </button>
       {tier && tier !== 'ANONYMOUS' ? (
         <label
           className="extended-search-toggle"
