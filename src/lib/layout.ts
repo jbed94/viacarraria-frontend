@@ -2,8 +2,8 @@ import dagre from 'dagre';
 
 import type { GraphEdge, GraphNode } from '../types/api';
 
-export const compactNodeWidth = 248;
-export const compactNodeHeight = 112;
+export const compactNodeWidth = 256;
+export const compactNodeHeight = 136;
 export const expandedNodeWidth = 328;
 export const expandedNodeHeight = 360;
 const horizontalNodeGap = 220;

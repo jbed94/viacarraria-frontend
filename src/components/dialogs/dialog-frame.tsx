@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 type DialogFrameProps = {
   open: boolean;
@@ -8,6 +8,7 @@ type DialogFrameProps = {
   title: string;
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
 };
 
 export function DialogFrame({
@@ -16,12 +17,13 @@ export function DialogFrame({
   title,
   children,
   className = '',
+  style,
 }: DialogFrameProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className={`dialog-content ${className}`}>
+        <Dialog.Content className={`dialog-content ${className}`} style={style}>
           <div className="dialog-header">
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close asChild>

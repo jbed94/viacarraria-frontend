@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../lib/api';
 import {
@@ -473,5 +473,51 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
     fireEvent.click(toggleBtn);
     expect(screen.getByText(/Table: OFF/i)).toBeInTheDocument();
     expect(document.body.querySelector('.pdf-table-inspector')).toBeNull();
+  });
+
+  it('renders corner resize grip handle and supports interactive panel resizing', async () => {
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-resize',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Resizing-Doc.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Resize test document',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-resize',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    const resizeHandle = await screen.findByTestId('dialog-resize-handle');
+    expect(resizeHandle).toBeInTheDocument();
+    expect(resizeHandle).toHaveAttribute('aria-label', 'Resize source dialog');
+
+    const dialogContent = document.querySelector(
+      '.source-dialog',
+    ) as HTMLElement;
+    expect(dialogContent).not.toBeNull();
+
+    // Trigger click on resize grip to toggle large size
+    fireEvent.mouseDown(resizeHandle, { clientX: 500, clientY: 400 });
+    fireEvent.mouseUp(window);
+
+    // Verify dialog style was updated with panelSize
+    expect(dialogContent.style.width).toMatch(/px$/);
+    expect(dialogContent.style.height).toMatch(/px$/);
+    const parsedWidth = Number.parseInt(dialogContent.style.width, 10);
+    const parsedHeight = Number.parseInt(dialogContent.style.height, 10);
+    expect(parsedWidth).toBeGreaterThanOrEqual(480);
+    expect(parsedHeight).toBeGreaterThanOrEqual(380);
   });
 });

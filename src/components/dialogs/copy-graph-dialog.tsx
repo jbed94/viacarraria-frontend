@@ -1,3 +1,4 @@
+import { Globe, Lock } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -9,7 +10,7 @@ type CopyGraphDialogProps = {
   limits?: LimitsSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCopy: (title: string) => Promise<boolean>;
+  onCopy: (title: string, isPublic: boolean) => Promise<boolean>;
   onOpenPricing: () => void;
 };
 
@@ -24,9 +25,20 @@ export function CopyGraphDialog({
   const [title, setTitle] = useState('');
   const [isSubmitting, setSubmitting] = useState(false);
 
+  const isFree = limits?.tier === 'FREE';
+  const privateLimitReached = Boolean(
+    isFree &&
+      limits?.privateGraphs?.limit != null &&
+      limits.privateGraphs.used >= limits.privateGraphs.limit,
+  );
+  const [isPublic, setIsPublic] = useState(false);
+
   useEffect(() => {
-    if (open && graph) setTitle(`${graph.title} (Copy)`);
-  }, [graph, open]);
+    if (open && graph) {
+      setTitle(`${graph.title} (Copy)`);
+      setIsPublic(privateLimitReached);
+    }
+  }, [graph, open, privateLimitReached]);
 
   if (!graph) return null;
   const graphLimitReached = Boolean(
@@ -45,7 +57,7 @@ export function CopyGraphDialog({
     event.preventDefault();
     setSubmitting(true);
     try {
-      if (await onCopy(title.trim())) onOpenChange(false);
+      if (await onCopy(title.trim(), isPublic)) onOpenChange(false);
     } finally {
       setSubmitting(false);
     }
@@ -58,8 +70,8 @@ export function CopyGraphDialog({
       title="Copy knowledge graph"
     >
       <p className="dialog-intro">
-        Create a private copy that you own. Its canvas and source documents will
-        be duplicated.
+        Create a copy that you own. Its canvas and source documents will be
+        duplicated.
       </p>
       <form className="dialog-form" onSubmit={(event) => void submit(event)}>
         <label>
@@ -72,6 +84,73 @@ export function CopyGraphDialog({
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
+
+        <div className="visibility-selector">
+          <span className="field-label">Visibility</span>
+          <div className="visibility-options">
+            <label
+              className={`visibility-option-card ${!isPublic ? 'selected' : ''} ${privateLimitReached ? 'disabled' : ''}`}
+            >
+              <input
+                type="radio"
+                name="copy-graph-visibility"
+                checked={!isPublic}
+                disabled={privateLimitReached}
+                onChange={() => setIsPublic(false)}
+              />
+              <div className="visibility-card-content">
+                <div className="visibility-title">
+                  <Lock size={13} aria-hidden="true" />
+                  <strong>Private</strong>
+                  {isFree ? (
+                    <span className="visibility-quota-tag">
+                      {limits?.privateGraphs.used ?? 0} /{' '}
+                      {limits?.privateGraphs.limit ?? 2}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="visibility-desc">Visible only to you.</span>
+              </div>
+            </label>
+
+            <label
+              className={`visibility-option-card ${isPublic ? 'selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="copy-graph-visibility"
+                checked={isPublic}
+                onChange={() => setIsPublic(true)}
+              />
+              <div className="visibility-card-content">
+                <div className="visibility-title">
+                  <Globe size={13} aria-hidden="true" />
+                  <strong>Public</strong>
+                </div>
+                <span className="visibility-desc">
+                  Visible in public browser to all.
+                </span>
+              </div>
+            </label>
+          </div>
+          {privateLimitReached ? (
+            <p className="limit-warning">
+              You have used all {limits?.privateGraphs.limit ?? 2} private
+              graphs included in Free.{' '}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  onOpenChange(false);
+                  onOpenPricing();
+                }}
+              >
+                Upgrade to Pro for unlimited private graphs.
+              </button>
+            </p>
+          ) : null}
+        </div>
+
         <div className="copy-limit-summary" aria-label="Current graph limits">
           <div>
             <span>Graphs</span>

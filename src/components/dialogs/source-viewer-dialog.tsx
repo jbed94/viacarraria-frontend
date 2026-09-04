@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import {
   Check,
   ChevronLeft,
@@ -12,7 +13,6 @@ import {
   Sparkles,
   Table,
 } from 'lucide-react';
-import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -43,6 +43,9 @@ export function isPdfSource(
   );
 }
 
+export const MIN_SOURCE_PANEL_WIDTH = 480;
+export const MIN_SOURCE_PANEL_HEIGHT = 380;
+
 export function SourceViewerDialog({
   sourceId,
   onOpenChange,
@@ -59,11 +62,90 @@ export function SourceViewerDialog({
   const [showTableInspector, setShowTableInspector] = useState(true);
   const [selectedColIndex, setSelectedColIndex] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [panelSize, setPanelSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
   const hitRef = useRef<HTMLElement>(null);
   const content = source?.content ?? focusedMatch?.context ?? '';
   const highlightRanges = getHighlightRanges(content, matches, focusedMatch);
   const focusKey = `${content.length}:${focusedMatch?.sourceId ?? ''}:${focusedMatch?.startChar ?? ''}:${focusedMatch?.endChar ?? ''}:${viewMode}`;
   const isPdf = isPdfSource(source, focusedMatch);
+
+  const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const dialogEl = (e.currentTarget.closest('.source-dialog') ||
+      e.currentTarget.parentElement) as HTMLElement | null;
+    const initialWidth =
+      panelSize?.width ?? (dialogEl ? dialogEl.offsetWidth : 800);
+    const initialHeight =
+      panelSize?.height ?? (dialogEl ? dialogEl.offsetHeight : 700);
+
+    let hasMoved = false;
+    setIsResizing(true);
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'nwse-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        hasMoved = true;
+      }
+      const minW = MIN_SOURCE_PANEL_WIDTH;
+      const minH = MIN_SOURCE_PANEL_HEIGHT;
+      const maxW = Math.max(minW, window.innerWidth - 32);
+      const maxH = Math.max(minH, window.innerHeight - 32);
+
+      const nextWidth = Math.min(maxW, Math.max(minW, initialWidth + dx * 2));
+      const nextHeight = Math.min(maxH, Math.max(minH, initialHeight + dy * 2));
+
+      setPanelSize({
+        width: Math.round(nextWidth),
+        height: Math.round(nextHeight),
+      });
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
+      setIsResizing(false);
+
+      if (!hasMoved) {
+        const minW = MIN_SOURCE_PANEL_WIDTH;
+        const minH = MIN_SOURCE_PANEL_HEIGHT;
+        const maxW = Math.max(minW, window.innerWidth - 48);
+        const maxH = Math.max(minH, window.innerHeight - 48);
+        const isCurrentlyLarge =
+          initialWidth >= maxW - 60 && initialHeight >= maxH - 60;
+
+        if (isCurrentlyLarge) {
+          setPanelSize({
+            width: Math.min(800, maxW),
+            height: Math.min(700, maxH),
+          });
+        } else {
+          setPanelSize({
+            width: Math.min(1120, maxW),
+            height: Math.min(840, maxH),
+          });
+        }
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   useEffect(() => {
     if (!focusedMatch || matches.length === 0) {
@@ -176,6 +258,14 @@ export function SourceViewerDialog({
         'Source viewer'
       }
       className="source-dialog"
+      style={
+        panelSize
+          ? {
+              width: `${panelSize.width}px`,
+              height: `${panelSize.height}px`,
+            }
+          : undefined
+      }
     >
       <div className="source-viewer-meta">
         <div className="source-meta-info">
@@ -491,6 +581,29 @@ export function SourceViewerDialog({
           )}
         </article>
       ) : null}
+      <div
+        className={`dialog-resize-handle ${isResizing ? 'is-resizing' : ''}`}
+        onMouseDown={handleResizeStart}
+        role="separator"
+        aria-label="Resize source dialog"
+        data-testid="dialog-resize-handle"
+        title="Drag to resize panel (or click to toggle size)"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M10 3L3 10M10 6.5L6.5 10M10 9.5L9.5 10"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
     </DialogFrame>
   );
 }

@@ -113,7 +113,7 @@ export function GraphCanvas() {
       >
         <ResultsViewport />
         <ExpandedNodeViewport />
-        <Background gap={28} size={1} color="var(--canvas-dot)" />
+        <Background gap={28} size={1.6} color="var(--canvas-dot)" />
         <Controls position="bottom-right" showInteractive={false} />
       </ReactFlow>
     </ReactFlowProvider>

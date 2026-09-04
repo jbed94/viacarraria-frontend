@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../../i18n';
@@ -207,5 +213,234 @@ describe('ResultsSidebar', () => {
     expect(
       screen.getByText('Adjacent node related concept'),
     ).toBeInTheDocument();
+  });
+
+  it('renders Lead Direct Answer hero card with answer type, score, and graph concept navigation', () => {
+    const onOpenMatch = vi.fn();
+    const onSelectNode = vi.fn();
+
+    const leadChunk = {
+      graphId: 'graph-1',
+      sourceId: 'src-algo',
+      sourceName: 'Algorithms-Guide.pdf',
+      nodeId: 'node-dijkstra',
+      content:
+        '# Shortest Path Algorithm\nStep 1: Initialize min-heap dist array.\nStep 2: While queue is not empty, extract min.',
+      context: 'Algorithm full context',
+      startChar: 0,
+      endChar: 110,
+      pageNum: 4,
+      score: 0.95,
+      rerankScore: 0.95,
+      kind: 'MATCH' as const,
+    };
+
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query-qa',
+          leadAnswer: {
+            chunk: leadChunk,
+            score: 0.95,
+            answerType: 'procedural',
+            prerequisiteNodes: [
+              { id: 'node-heap', title: 'Min-Heap Priority Queue' },
+            ],
+            extensionNodes: [
+              { id: 'node-astar', title: 'A* Search Heuristic' },
+            ],
+          },
+          results: [
+            {
+              nodeId: 'node-dijkstra',
+              matchCount: 1,
+              chunks: [leadChunk],
+            },
+          ],
+          matchedNodeIds: ['node-dijkstra'],
+          remaining: 10,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={onOpenMatch}
+        onSelectNode={onSelectNode}
+      />,
+    );
+
+    // Verify Direct Answer hero badges
+    expect(screen.getByText('QA Mode')).toBeInTheDocument();
+    const hero = screen.getByLabelText('Direct Answer');
+    const withinHero = within(hero);
+
+    expect(withinHero.getByText('Direct Answer')).toBeInTheDocument();
+    expect(withinHero.getByText('Procedure')).toBeInTheDocument();
+    expect(withinHero.getByText('95% Salience')).toBeInTheDocument();
+
+    // Verify lead answer source and page info
+    expect(withinHero.getByText('Algorithms-Guide.pdf')).toBeInTheDocument();
+    expect(withinHero.getByText('p.4')).toBeInTheDocument();
+
+    // Verify prerequisite and next-step navigation chips
+    expect(withinHero.getByText('Min-Heap Priority Queue')).toBeInTheDocument();
+    expect(withinHero.getByText('A* Search Heuristic')).toBeInTheDocument();
+
+    // Clicking prerequisite chip focuses node on canvas
+    fireEvent.click(
+      withinHero.getByRole('button', { name: 'Min-Heap Priority Queue' }),
+    );
+    expect(onSelectNode).toHaveBeenCalledWith('node-heap');
+
+    // Clicking extension chip focuses node on canvas
+    fireEvent.click(
+      withinHero.getByRole('button', { name: 'A* Search Heuristic' }),
+    );
+    expect(onSelectNode).toHaveBeenCalledWith('node-astar');
+
+    // Clicking lead answer card body opens the match in PDF dialog
+    fireEvent.click(
+      withinHero.getByText(
+        'Shortest Path Algorithm Step 1: Initialize min-heap dist array. Step 2: While queue is not empty, extract min.',
+      ),
+    );
+    expect(onOpenMatch).toHaveBeenCalledWith(leadChunk);
+  });
+
+  it('calls onClose when exit button is clicked', () => {
+    const onClose = vi.fn();
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 2,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+
+    const exitBtn = screen.getByRole('button', { name: /close/i });
+    expect(exitBtn).toBeInTheDocument();
+    fireEvent.click(exitBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onClose when Escape key is pressed', () => {
+    const onClose = vi.fn();
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 2,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders horizontal resize handle with characteristic lines and toggles width on double click', () => {
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 0,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+      />,
+    );
+
+    const resizeHandle = screen.getByRole('separator', {
+      name: /resize results panel/i,
+    });
+    expect(resizeHandle).toBeInTheDocument();
+    expect(resizeHandle).toHaveAttribute('aria-orientation', 'vertical');
+
+    const sidebar = screen.getByRole('complementary', { name: /results/i });
+    expect(sidebar).toHaveStyle({ width: '380px' });
+
+    // Double click toggles to expanded width
+    fireEvent.doubleClick(resizeHandle);
+    expect(sidebar).toHaveStyle({ width: '600px' });
+
+    // Double click again returns to default width
+    fireEvent.doubleClick(resizeHandle);
+    expect(sidebar).toHaveStyle({ width: '380px' });
+  });
+
+  it('opens Search & Query Answering Guide dialog when info button is clicked', () => {
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 0,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+      />,
+    );
+
+    const infoBtn = screen.getByRole('button', {
+      name: /search guide & legend/i,
+    });
+    expect(infoBtn).toBeInTheDocument();
+
+    // Dialog is initially closed
+    expect(
+      screen.queryByText('Search & Query Answering Guide'),
+    ).not.toBeInTheDocument();
+
+    // Click opens guide dialog
+    fireEvent.click(infoBtn);
+    expect(
+      screen.getByText('Search & Query Answering Guide'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Indicators & Legend')).toBeInTheDocument();
   });
 });

@@ -61,6 +61,7 @@ type GraphStore = {
   removeNode: (id: string) => void;
   updateNode: (id: string, data: GraphNode['data']) => void;
   replaceCanvas: (nodes: GraphNode[], edges: GraphEdge[]) => void;
+  collapseAllNodes: () => void;
   setSources: (sources: Source[]) => void;
   setLoading: (value: boolean) => void;
   setError: (error?: string) => void;
@@ -97,7 +98,29 @@ export const useGraphStore = create<GraphStore>((set) => ({
       mode: results ? 'VISUAL_RESULTS' : 'IDLE',
       activeSourceId: results ? state.activeSourceId : undefined,
       activeMatch: results ? state.activeMatch : undefined,
+      ...(results
+        ? {}
+        : {
+            expandedNodeIds: [],
+            graph: state.graph
+              ? {
+                  ...state.graph,
+                  nodes: layoutGraph(state.graph.nodes, state.graph.edges, []),
+                }
+              : undefined,
+          }),
     })),
+  collapseAllNodes: () =>
+    set((state) => {
+      if (!state.graph || state.expandedNodeIds.length === 0) return state;
+      return {
+        expandedNodeIds: [],
+        graph: {
+          ...state.graph,
+          nodes: layoutGraph(state.graph.nodes, state.graph.edges, []),
+        },
+      };
+    }),
   toggleNodeSelection: (id) =>
     set((state) => ({
       selectedNodeIds: state.selectedNodeIds.includes(id)

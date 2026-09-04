@@ -34,6 +34,7 @@ const graph: Graph = {
 const limits: LimitsSummary = {
   tier: 'FREE',
   graphs: { used: 2, limit: 3, exceeded: false },
+  privateGraphs: { used: 0, limit: 2, exceeded: false },
   queries: { used: 4, limit: 20, exceeded: false },
   uploads: { used: 1, limit: 10, exceeded: false },
   selectedNodes: { used: 0, limit: 10, exceeded: false },
@@ -99,7 +100,9 @@ describe('CopyGraphDialog', () => {
     const input = await screen.findByRole('textbox');
     fireEvent.change(input, { target: { value: 'My copied graph' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy graph' }));
-    await waitFor(() => expect(onCopy).toHaveBeenCalledWith('My copied graph'));
+    await waitFor(() =>
+      expect(onCopy).toHaveBeenCalledWith('My copied graph', false),
+    );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 });

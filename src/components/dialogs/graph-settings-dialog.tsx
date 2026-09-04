@@ -1,56 +1,65 @@
-import { Globe, Lock } from 'lucide-react';
+import { AlertTriangle, Globe, Lock } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 
-import type { LimitStatus, SubscriptionTier } from '../../types/api';
+import type { Graph, LimitsSummary } from '../../types/api';
 import { DialogFrame } from './dialog-frame';
 
-type GraphDialogProps = {
+type GraphSettingsDialogProps = {
+  graph?: Graph;
+  limits?: LimitsSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (
-    title: string,
-    description: string,
-    isPublic: boolean,
-  ) => Promise<void>;
-  privateQuota?: LimitStatus;
-  tier?: SubscriptionTier;
-  onOpenPricing?: () => void;
+  onSave: (values: {
+    title: string;
+    description: string;
+    isPublic: boolean;
+  }) => Promise<void>;
+  onOpenPricing: () => void;
 };
 
-export function GraphDialog({
+export function GraphSettingsDialog({
+  graph,
+  limits,
   open,
   onOpenChange,
-  onCreate,
-  privateQuota,
-  tier,
+  onSave,
   onOpenPricing,
-}: GraphDialogProps) {
+}: GraphSettingsDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
 
-  const isFree = tier === 'FREE';
+  useEffect(() => {
+    if (open && graph) {
+      setTitle(graph.title);
+      setDescription(graph.description ?? '');
+      setIsPublic(graph.isPublic);
+    }
+  }, [graph, open]);
+
+  if (!graph) return null;
+
+  const isFree = limits?.tier === 'FREE';
+  const switchingToPrivate = !isPublic && graph.isPublic;
+  // If switching from public to private, user needs private quota
   const privateLimitReached = Boolean(
     isFree &&
-      privateQuota?.limit != null &&
-      privateQuota.used >= privateQuota.limit,
+      switchingToPrivate &&
+      limits?.privateGraphs?.limit != null &&
+      limits.privateGraphs.used >= limits.privateGraphs.limit,
   );
-  const [isPublic, setIsPublic] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setIsPublic(privateLimitReached);
-    }
-  }, [open, privateLimitReached]);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSubmitting(true);
     try {
-      await onCreate(title, description, isPublic);
-      setTitle('');
-      setDescription('');
+      await onSave({
+        title: title.trim(),
+        description: description.trim(),
+        isPublic,
+      });
       onOpenChange(false);
     } finally {
       setSubmitting(false);
@@ -58,11 +67,7 @@ export function GraphDialog({
   }
 
   return (
-    <DialogFrame
-      open={open}
-      onOpenChange={onOpenChange}
-      title="New knowledge graph"
-    >
+    <DialogFrame open={open} onOpenChange={onOpenChange} title="Graph settings">
       <form className="dialog-form" onSubmit={(event) => void submit(event)}>
         <label>
           Title
@@ -91,7 +96,7 @@ export function GraphDialog({
             >
               <input
                 type="radio"
-                name="new-graph-visibility"
+                name="settings-graph-visibility"
                 checked={!isPublic}
                 disabled={privateLimitReached}
                 onChange={() => setIsPublic(false)}
@@ -102,7 +107,8 @@ export function GraphDialog({
                   <strong>Private</strong>
                   {isFree ? (
                     <span className="visibility-quota-tag">
-                      {privateQuota?.used ?? 0} / {privateQuota?.limit ?? 2}
+                      {limits?.privateGraphs.used ?? 0} /{' '}
+                      {limits?.privateGraphs.limit ?? 2}
                     </span>
                   ) : null}
                 </div>
@@ -115,7 +121,7 @@ export function GraphDialog({
             >
               <input
                 type="radio"
-                name="new-graph-visibility"
+                name="settings-graph-visibility"
                 checked={isPublic}
                 onChange={() => setIsPublic(true)}
               />
@@ -130,33 +136,52 @@ export function GraphDialog({
               </div>
             </label>
           </div>
+
+          {switchingToPrivate ? (
+            <div className="visibility-warning-banner" role="alert">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>
+                Making this graph private will immediately disconnect all{' '}
+                {graph.viewerCount ?? 0} attached viewers. They will lose
+                access.
+              </span>
+            </div>
+          ) : null}
+
           {privateLimitReached ? (
             <p className="limit-warning">
-              You have used all {privateQuota?.limit ?? 2} private graphs
-              included in Free.{' '}
-              {onOpenPricing ? (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    onOpenPricing();
-                  }}
-                >
-                  Upgrade to Pro for unlimited private graphs.
-                </button>
-              ) : null}
+              You have reached your limit of {limits?.privateGraphs.limit ?? 2}{' '}
+              private graphs.{' '}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  onOpenChange(false);
+                  onOpenPricing();
+                }}
+              >
+                Upgrade to Pro for unlimited private graphs.
+              </button>
             </p>
           ) : null}
         </div>
 
-        <button
-          type="submit"
-          className="command-button accent"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? '...' : 'Create graph'}
-        </button>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="command-button"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="command-button accent"
+            disabled={isSubmitting || privateLimitReached}
+          >
+            {isSubmitting ? 'Saving...' : 'Save changes'}
+          </button>
+        </div>
       </form>
     </DialogFrame>
   );

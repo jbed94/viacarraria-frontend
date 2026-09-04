@@ -5,7 +5,14 @@ import {
   Position,
   useUpdateNodeInternals,
 } from '@xyflow/react';
-import { ChevronUp, FileText, Maximize2, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronUp,
+  FileCode,
+  FileText,
+  Maximize2,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -161,7 +168,10 @@ export function SubjectNode({ id, data }: NodeProps) {
         </label>
       ) : null}
       {isExpanded ? (
-        <section className="node-details nodrag nopan">
+        <section
+          className="node-details nodrag nopan nowheel"
+          onWheel={(e) => e.stopPropagation()}
+        >
           <div className="node-details-header">
             <span>{t('topicDetails')}</span>
             <button
@@ -249,46 +259,70 @@ export function SubjectNode({ id, data }: NodeProps) {
           <div className="detail-section">
             <h3>Sources</h3>
             {sources.length === 0 ? <p>{t('noSources')}</p> : null}
-            {sources.map((source) => (
-              <div key={source.id} className="source-entry">
-                <button
-                  type="button"
-                  className="source-row"
-                  onClick={() => {
-                    setActiveSourceId(source.id);
-                    setActiveMatch(undefined);
-                  }}
-                >
-                  <FileText size={14} />
-                  <span>{source.name}</span>
-                  {source.fileType === 'application/pdf' ||
-                  source.name.toLowerCase().endsWith('.pdf') ? (
-                    <span className="source-pdf-tag">PDF</span>
-                  ) : null}
-                  <small
-                    className={`source-status ${source.status.toLowerCase()}`}
-                  >
-                    {source.status}
-                  </small>
-                </button>
-                {isEditing ? (
+            {sources.map((source) => {
+              const isPdf =
+                source.fileType === 'application/pdf' ||
+                source.name.toLowerCase().endsWith('.pdf');
+              const isMarkdown =
+                source.fileType === 'text/markdown' ||
+                source.fileType?.includes('markdown') ||
+                source.name.toLowerCase().endsWith('.md') ||
+                source.name.toLowerCase().endsWith('.markdown');
+
+              return (
+                <div key={source.id} className="source-entry">
                   <button
                     type="button"
-                    className="source-delete"
-                    title="Delete source"
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent('via-delete-source', {
-                          detail: { sourceId: source.id },
-                        }),
-                      )
-                    }
+                    className="source-row"
+                    onClick={() => {
+                      setActiveSourceId(source.id);
+                      setActiveMatch(undefined);
+                    }}
                   >
-                    <Trash2 size={13} />
+                    <FileText size={14} className="source-row-icon" />
+                    <span className="source-title">{source.name}</span>
+                    {isPdf ? (
+                      <span
+                        className="source-format-badge format-pdf"
+                        title="PDF Document"
+                      >
+                        <FileText size={10} aria-hidden="true" />
+                        <span>PDF</span>
+                      </span>
+                    ) : isMarkdown ? (
+                      <span
+                        className="source-format-badge format-md"
+                        title="Markdown Document"
+                      >
+                        <FileCode size={10} aria-hidden="true" />
+                        <span>Markdown</span>
+                      </span>
+                    ) : null}
+                    <small
+                      className={`source-status ${source.status.toLowerCase()}`}
+                    >
+                      {source.status}
+                    </small>
                   </button>
-                ) : null}
-              </div>
-            ))}
+                  {isEditing ? (
+                    <button
+                      type="button"
+                      className="source-delete"
+                      title="Delete source"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent('via-delete-source', {
+                            detail: { sourceId: source.id },
+                          }),
+                        )
+                      }
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
           {isEditing ? (
             <label className="upload-source" title="Upload a source document">

@@ -8,6 +8,9 @@ void i18n.use(initReactI18next).init({
         searchPlaceholder: 'Ask about selected topics',
         search: 'Search',
         searchResults: 'Results',
+        directAnswer: 'Direct Answer',
+        prerequisites: 'Prerequisites',
+        nextSteps: 'Next Steps',
         noSearchResults: 'No matching sources.',
         extendedSearch: 'Extended',
         extendedSearchQuota:
@@ -71,6 +74,9 @@ void i18n.use(initReactI18next).init({
         searchPlaceholder: 'Zapytaj o wybrane tematy',
         search: 'Szukaj',
         searchResults: 'Wyniki',
+        directAnswer: 'Bezpośrednia odpowiedź',
+        prerequisites: 'Wymagania wstępne',
+        nextSteps: 'Kolejne kroki',
         noSearchResults: 'Brak pasujących źródeł.',
         extendedSearch: 'Rozszerzone',
         extendedSearchQuota:
@@ -134,6 +140,9 @@ void i18n.use(initReactI18next).init({
         searchPlaceholder: 'Pregunta sobre los temas seleccionados',
         search: 'Buscar',
         searchResults: 'Resultados',
+        directAnswer: 'Respuesta directa',
+        prerequisites: 'Prerrequisitos',
+        nextSteps: 'Próximos pasos',
         noSearchResults: 'No hay fuentes coincidentes.',
         extendedSearch: 'Extendida',
         extendedSearchQuota:
@@ -197,6 +206,9 @@ void i18n.use(initReactI18next).init({
         searchPlaceholder: 'Chiedi sugli argomenti selezionati',
         search: 'Cerca',
         searchResults: 'Risultati',
+        directAnswer: 'Risposta diretta',
+        prerequisites: 'Prerequisiti',
+        nextSteps: 'Prossimi passi',
         noSearchResults: 'Nessuna fonte corrispondente.',
         extendedSearch: 'Estesa',
         extendedSearchQuota:

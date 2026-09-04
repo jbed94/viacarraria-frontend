@@ -3,13 +3,14 @@ import type {
   GraphEdge,
   GraphSummary,
   Identity,
+  LimitsSummary,
+  PublicGraphItem,
   QueryHistory,
   SearchResponse,
   SearchScope,
   SearchSensitivity,
   Source,
   SubscriptionTier,
-  LimitsSummary,
 } from '../types/api';
 
 const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
@@ -126,11 +127,34 @@ export const api = {
     window.location.assign(result.url);
   },
   graphs: () => request<GraphSummary[]>('/graphs'),
+  publicGraphs: (search?: string) =>
+    request<PublicGraphItem[]>(
+      search?.trim()
+        ? `/graphs/public?search=${encodeURIComponent(search.trim())}`
+        : '/graphs/public',
+    ),
   graph: (id: string) => request<Graph>(`/graphs/${id}`),
-  createGraph: (title: string, description: string) =>
+  attachGraph: (id: string) =>
+    request<Graph>(`/graphs/${id}/attach`, { method: 'POST' }),
+  detachGraph: (id: string) =>
+    request<void>(`/graphs/${id}/attach`, { method: 'DELETE' }),
+  updateVisibility: (id: string, isPublic: boolean) =>
+    request<Graph>(`/graphs/${id}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isPublic }),
+    }),
+  updateSettings: (
+    id: string,
+    values: { title?: string; description?: string; isPublic?: boolean },
+  ) =>
+    request<Graph>(`/graphs/${id}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(values),
+    }),
+  createGraph: (title: string, description: string, isPublic = false) =>
     request<Graph>('/graphs', {
       method: 'POST',
-      body: JSON.stringify({ title, description }),
+      body: JSON.stringify({ title, description, isPublic }),
     }),
   updateGraph: (id: string, nodes: Graph['nodes'], edges: GraphEdge[]) =>
     request<Graph>(`/graphs/${id}`, {
@@ -141,10 +165,10 @@ export const api = {
     request<Graph>(`/graphs/${id}/finalize`, { method: 'POST' }),
   deleteGraph: (id: string) =>
     request<void>(`/graphs/${id}`, { method: 'DELETE' }),
-  copyGraph: (id: string, title: string) =>
+  copyGraph: (id: string, title: string, isPublic = false) =>
     request<Graph>(`/graphs/${id}/copy`, {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, isPublic }),
     }),
   search: (
     graphId: string,

@@ -28,6 +28,9 @@ const props = {
   onCopy: vi.fn(),
   onCreate: vi.fn(),
   onToggleEditing: vi.fn(),
+  onOpenBrowser: vi.fn(),
+  onOpenSettings: vi.fn(),
+  onAttachCurrent: vi.fn(),
   onOpenAuth: vi.fn(),
   onOpenProfile: vi.fn(),
   onOpenPricing: vi.fn(),
@@ -36,6 +39,7 @@ const props = {
   limits: {
     tier: 'FREE' as const,
     graphs: { used: 3, limit: 3, exceeded: true },
+    privateGraphs: { used: 1, limit: 2, exceeded: false },
     queries: { used: 20, limit: 20, exceeded: true },
     uploads: { used: 2, limit: 10, exceeded: false },
     selectedNodes: { used: 0, limit: 10, exceeded: false },
@@ -49,29 +53,35 @@ const props = {
 describe('Header graph access controls', () => {
   afterEach(cleanup);
 
-  it('shows view permission and access count without exposing names', () => {
-    render(<Header {...props} graph={graph} />);
+  it('shows public badge and viewer count for public graphs', () => {
+    const publicGraph = {
+      ...graph,
+      isPublic: true,
+      viewerCount: 5,
+    };
+    render(<Header {...props} graph={publicGraph} />);
 
-    expect(screen.getByLabelText('5 users with access')).toBeInTheDocument();
-    expect(screen.getByText('View only')).toBeInTheDocument();
+    expect(screen.getByText('Public')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Copy graph' }),
     ).toBeInTheDocument();
     expect(screen.queryByTitle('Edit graph')).not.toBeInTheDocument();
   });
 
-  it('formats large access counts into tier badges', () => {
-    const tieredGraph = {
+  it('shows Priv indicator without access count for private graphs', () => {
+    const privateGraph = {
       ...graph,
-      accessCount: 140,
+      isPublic: false,
+      viewerCount: 0,
     };
-    render(<Header {...props} graph={tieredGraph} />);
+    render(<Header {...props} graph={privateGraph} />);
 
-    expect(screen.getByLabelText('+100 users with access')).toBeInTheDocument();
-    expect(screen.getByText('+100')).toBeInTheDocument();
+    expect(screen.getByText('Priv')).toBeInTheDocument();
+    expect(screen.queryByText('Public')).not.toBeInTheDocument();
   });
 
-  it('shows the edit control only when the server grants edit permission', () => {
+  it('shows edit and settings controls only when the server grants edit permission', () => {
     const ownedGraph = {
       ...graph,
       isPublic: false,
@@ -83,7 +93,10 @@ describe('Header graph access controls', () => {
     render(<Header {...props} graph={ownedGraph} />);
 
     expect(screen.getByTitle('Edit graph')).toBeInTheDocument();
-    expect(screen.getByText('Owner')).toBeInTheDocument();
+    expect(
+      screen.getByTitle('Graph settings & visibility'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Priv')).toBeInTheDocument();
   });
 
   it('opens the current quota context menu with separate Quotas and Plan limits sections', () => {
@@ -116,6 +129,7 @@ describe('Header graph access controls', () => {
       limits: {
         tier: 'ANONYMOUS' as const,
         graphs: { used: 0, limit: 0, exceeded: true },
+        privateGraphs: { used: 0, limit: 0, exceeded: true },
         queries: { used: 1, limit: 3, exceeded: false },
         uploads: { used: 0, limit: 0, exceeded: true },
         selectedNodes: { used: 0, limit: 2, exceeded: false },

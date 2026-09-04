@@ -9,6 +9,7 @@ export type LimitStatus = {
 export type LimitsSummary = {
   tier: SubscriptionTier;
   graphs: LimitStatus;
+  privateGraphs: LimitStatus;
   queries: LimitStatus;
   uploads: LimitStatus;
   selectedNodes: LimitStatus;
@@ -71,9 +72,46 @@ export type GraphSummary = {
   permission: GraphPermission;
   canEdit: boolean;
   accessCount: number;
+  isAttached?: boolean;
+  viewerCount?: number;
+  ownerName?: string;
+  canQuery?: boolean;
+};
+
+export type PublicGraphItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  userId: string;
+  ownerName: string;
+  isPublic: boolean;
+  isPrepared: boolean;
+  isOwned: boolean;
+  isAttached: boolean;
+  canQuery: boolean;
+  viewerCount: number;
+  nodeCount: number;
+  sourceCount: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Graph = GraphSummary & { sources: Source[] };
+
+export type LeadAnswerType =
+  | 'direct'
+  | 'procedural'
+  | 'definitional'
+  | 'tabular';
+
+export type LeadAnswer = {
+  chunk: SearchChunk;
+  score: number;
+  answerType: LeadAnswerType;
+  prerequisiteNodes?: Array<{ id: string; title: string }>;
+  extensionNodes?: Array<{ id: string; title: string }>;
+  surroundingContext?: SearchChunk[];
+};
 
 export type SearchChunk = {
   graphId: string;
@@ -88,6 +126,7 @@ export type SearchChunk = {
   coordinates?: number[];
   elementType?: string;
   score: number;
+  rerankScore?: number;
   kind?: 'MATCH' | 'EXTENDED';
   extendedContext?: SearchChunk[];
 };
@@ -97,6 +136,7 @@ export type SearchScope = 'narrow' | 'normal' | 'wide';
 
 export type SearchResponse = {
   queryId: string;
+  leadAnswer?: LeadAnswer;
   results: Array<{ nodeId: string; matchCount: number; chunks: SearchChunk[] }>;
   matchedNodeIds: string[];
   remaining: number;

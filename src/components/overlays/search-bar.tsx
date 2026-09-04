@@ -9,6 +9,7 @@ import type {
   SearchSensitivity,
   SubscriptionTier,
 } from '../../types/api';
+import { LineSlicer } from '../ui/line-slicer';
 
 type SearchBarProps = {
   onSearch: (
@@ -32,6 +33,18 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
   const mode = useGraphStore((state) => state.mode);
   const setMode = useGraphStore((state) => state.setMode);
   const setResults = useGraphStore((state) => state.setResults);
+
+  const sensitivityOptions = [
+    { value: 'low' as const, label: t('sensitivityLow') },
+    { value: 'medium' as const, label: t('sensitivityMedium') },
+    { value: 'high' as const, label: t('sensitivityHigh') },
+  ];
+
+  const scopeOptions = [
+    { value: 'narrow' as const, label: t('scopeNarrow') },
+    { value: 'normal' as const, label: t('scopeNormal') },
+    { value: 'wide' as const, label: t('scopeWide') },
+  ];
 
   useEffect(() => {
     if (queryForEdit !== undefined) setQuery(queryForEdit);
@@ -89,39 +102,12 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
               <span className="search-option-label">{t('sensitivity')}</span>
               <span className="search-option-desc">{sensitivityDesc}</span>
             </div>
-            <div
-              className="search-segmented-control"
-              role="radiogroup"
-              aria-label={t('sensitivity')}
-            >
-              <button
-                type="button"
-                className={`segmented-btn ${sensitivity === 'low' ? 'active' : ''}`}
-                onClick={() => setSensitivity('low')}
-                aria-checked={sensitivity === 'low'}
-                role="radio"
-              >
-                {t('sensitivityLow')}
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${sensitivity === 'medium' ? 'active' : ''}`}
-                onClick={() => setSensitivity('medium')}
-                aria-checked={sensitivity === 'medium'}
-                role="radio"
-              >
-                {t('sensitivityMedium')}
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${sensitivity === 'high' ? 'active' : ''}`}
-                onClick={() => setSensitivity('high')}
-                aria-checked={sensitivity === 'high'}
-                role="radio"
-              >
-                {t('sensitivityHigh')}
-              </button>
-            </div>
+            <LineSlicer
+              label={t('sensitivity')}
+              value={sensitivity}
+              options={sensitivityOptions}
+              onChange={setSensitivity}
+            />
           </div>
 
           <div className="search-option-group">
@@ -129,39 +115,12 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
               <span className="search-option-label">{t('scope')}</span>
               <span className="search-option-desc">{scopeDesc}</span>
             </div>
-            <div
-              className="search-segmented-control"
-              role="radiogroup"
-              aria-label={t('scope')}
-            >
-              <button
-                type="button"
-                className={`segmented-btn ${scope === 'narrow' ? 'active' : ''}`}
-                onClick={() => setScope('narrow')}
-                aria-checked={scope === 'narrow'}
-                role="radio"
-              >
-                {t('scopeNarrow')}
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${scope === 'normal' ? 'active' : ''}`}
-                onClick={() => setScope('normal')}
-                aria-checked={scope === 'normal'}
-                role="radio"
-              >
-                {t('scopeNormal')}
-              </button>
-              <button
-                type="button"
-                className={`segmented-btn ${scope === 'wide' ? 'active' : ''}`}
-                onClick={() => setScope('wide')}
-                aria-checked={scope === 'wide'}
-                role="radio"
-              >
-                {t('scopeWide')}
-              </button>
-            </div>
+            <LineSlicer
+              label={t('scope')}
+              value={scope}
+              options={scopeOptions}
+              onChange={setScope}
+            />
           </div>
         </div>
       ) : null}
