@@ -15,6 +15,12 @@ void i18n.use(initReactI18next).init({
         extendedSearch: 'Extended',
         extendedSearchQuota:
           'Search adjacent topics for up to {{count}} related contexts',
+        extendedSearchGuestQuota:
+          'Sign in to unlock adjacent topic exploration (3 Free, 15 Pro)',
+        extendedSearchSignInPrompt: 'Sign in',
+        closeResults: 'Close results',
+        closeResultsTitle: 'Exit results view',
+        closeSource: 'Close source dialog',
         queryOptions: 'Search options',
         sensitivity: 'Sensitivity',
         sensitivityLow: 'Low',
@@ -81,6 +87,12 @@ void i18n.use(initReactI18next).init({
         extendedSearch: 'Rozszerzone',
         extendedSearchQuota:
           'Przeszukaj sąsiednie tematy do {{count}} dodatkowych kontekstów',
+        extendedSearchGuestQuota:
+          'Zaloguj się, aby odblokować przeszukiwanie sąsiednich tematów (3 darmowe, 15 Pro)',
+        extendedSearchSignInPrompt: 'Zaloguj się',
+        closeResults: 'Zamknij wyniki',
+        closeResultsTitle: 'Wyjdź z widoku wyników',
+        closeSource: 'Zamknij okno źródła',
         queryOptions: 'Opcje wyszukiwania',
         sensitivity: 'Czułość',
         sensitivityLow: 'Niska',
@@ -147,6 +159,12 @@ void i18n.use(initReactI18next).init({
         extendedSearch: 'Extendida',
         extendedSearchQuota:
           'Busca temas adyacentes para hasta {{count}} contextos relacionados',
+        extendedSearchGuestQuota:
+          'Inicia sesión para desbloquear exploración de temas adyacentes (3 Gratis, 15 Pro)',
+        extendedSearchSignInPrompt: 'Iniciar sesión',
+        closeResults: 'Cerrar resultados',
+        closeResultsTitle: 'Salir de la vista de resultados',
+        closeSource: 'Cerrar diálogo de fuente',
         queryOptions: 'Opciones de búsqueda',
         sensitivity: 'Sensibilidad',
         sensitivityLow: 'Baja',
@@ -213,6 +231,12 @@ void i18n.use(initReactI18next).init({
         extendedSearch: 'Estesa',
         extendedSearchQuota:
           'Cerca argomenti adiacenti fino a {{count}} contesti correlati',
+        extendedSearchGuestQuota:
+          "Accedi per sbloccare l'esplorazione degli argomenti adiacenti (3 Gratuiti, 15 Pro)",
+        extendedSearchSignInPrompt: 'Accedi',
+        closeResults: 'Chiudi risultati',
+        closeResultsTitle: 'Esci dalla vista risultati',
+        closeSource: 'Chiudi finestra sorgente',
         queryOptions: 'Opzioni di ricerca',
         sensitivity: 'Sensibilità',
         sensitivityLow: 'Bassa',

@@ -10,14 +10,18 @@ import {
   FileCode,
   FileText,
   Maximize2,
+  Pause,
+  Play,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGraphStore } from '../../store/graph-store';
 import type { SubjectNodeData } from '../../types/api';
+import { CircularProgress } from '../ui/circular-progress';
 
 export function SubjectNode({ id, data }: NodeProps) {
   const subject = data as SubjectNodeData;
@@ -40,15 +44,39 @@ export function SubjectNode({ id, data }: NodeProps) {
     (state) => state.setPendingDeleteNodeId,
   );
   const addChild = useGraphStore((state) => state.addChild);
+  const activeUploads = useGraphStore((state) => state.activeUploads);
   const updateNodeInternals = useUpdateNodeInternals();
 
-  const sources = graph?.sources.filter((source) => source.nodeId === id) ?? [];
-  const hasPdf = sources.some(
-    (source) =>
-      source.fileType === 'application/pdf' ||
-      source.name.toLowerCase().endsWith('.pdf'),
+  const nodeUploads = useMemo(
+    () => Object.values(activeUploads).filter((upload) => upload.nodeId === id),
+    [activeUploads, id],
   );
-  const match = results?.results.find((result) => result.nodeId === id);
+  const sources = useMemo(
+    () => graph?.sources.filter((source) => source.nodeId === id) ?? [],
+    [graph?.sources, id],
+  );
+  const processingSource = useMemo(
+    () =>
+      sources.find(
+        (source) =>
+          source.status === 'PROCESSING' || source.status === 'PENDING',
+      ),
+    [sources],
+  );
+  const activeProgress = processingSource?.progress ?? 0;
+  const hasPdf = useMemo(
+    () =>
+      sources.some(
+        (source) =>
+          source.fileType === 'application/pdf' ||
+          source.name.toLowerCase().endsWith('.pdf'),
+      ),
+    [sources],
+  );
+  const match = useMemo(
+    () => results?.results.find((result) => result.nodeId === id),
+    [results?.results, id],
+  );
   const isMatched = Boolean(match);
   const isExpanded = expandedNodeIds.includes(id);
   const isSelected = selectedNodeIds.includes(id);
@@ -56,15 +84,15 @@ export function SubjectNode({ id, data }: NodeProps) {
     identity?.tier === 'ANONYMOUS' ? 2 : Number.POSITIVE_INFINITY;
   const selectionLimitReached =
     selectedNodeIds.length >= selectionLimit && !isSelected;
-  const matchesBySource = new Map<
-    string,
-    NonNullable<typeof match>['chunks']
-  >();
-  for (const chunk of match?.chunks ?? []) {
-    const sourceMatches = matchesBySource.get(chunk.sourceId) ?? [];
-    sourceMatches.push(chunk);
-    matchesBySource.set(chunk.sourceId, sourceMatches);
-  }
+  const matchesBySource = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof match>['chunks']>();
+    for (const chunk of match?.chunks ?? []) {
+      const sourceMatches = map.get(chunk.sourceId) ?? [];
+      sourceMatches.push(chunk);
+      map.set(chunk.sourceId, sourceMatches);
+    }
+    return map;
+  }, [match]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => updateNodeInternals(id));
@@ -138,6 +166,24 @@ export function SubjectNode({ id, data }: NodeProps) {
         <strong>{subject.title}</strong>
         {sources.length > 0 ? (
           <span className="node-attachments">
+            {processingSource ? (
+              <span
+                className="source-progress-badge"
+                title={`Processing document: ${activeProgress}%`}
+                role="progressbar"
+                aria-valuenow={activeProgress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Processing document: ${activeProgress}%`}
+              >
+                <CircularProgress
+                  size={10}
+                  strokeWidth={2.2}
+                  aria-label="Processing"
+                />
+                <span>{activeProgress}%</span>
+              </span>
+            ) : null}
             <span
               className="source-count-badge"
               title={`${sources.length} ${sources.length === 1 ? 'source' : 'sources'} attached`}
@@ -258,7 +304,101 @@ export function SubjectNode({ id, data }: NodeProps) {
           ) : null}
           <div className="detail-section">
             <h3>Sources</h3>
-            {sources.length === 0 ? <p>{t('noSources')}</p> : null}
+            {sources.length === 0 && nodeUploads.length === 0 ? (
+              <p>{t('noSources')}</p>
+            ) : null}
+            {nodeUploads.map((upload) => {
+              const isPaused = upload.status === 'paused';
+              const isCompleting =
+                upload.status === 'completing' || upload.progress >= 100;
+              return (
+                <div key={upload.uploadKey} className="source-entry">
+                  <div
+                    className={`source-upload-track ${isPaused ? 'is-paused' : ''}`}
+                  >
+                    <CircularProgress
+                      size={14}
+                      strokeWidth={2.5}
+                      value={upload.progress}
+                      aria-label={`Uploading ${upload.fileName}`}
+                    />
+                    <span className="upload-filename" title={upload.fileName}>
+                      {upload.fileName}
+                    </span>
+                    {upload.concurrency && upload.concurrency > 1 ? (
+                      <span
+                        className="upload-stream-pill"
+                        title={`${upload.concurrency} concurrent streams`}
+                      >
+                        {upload.concurrency}x
+                      </span>
+                    ) : null}
+                    {isPaused ? (
+                      <span className="upload-status-badge paused">Paused</span>
+                    ) : isCompleting ? (
+                      <span className="upload-status-badge completing">
+                        Finalizing...
+                      </span>
+                    ) : (
+                      <span className="upload-percent">{upload.progress}%</span>
+                    )}
+                    <div className="upload-actions">
+                      {isPaused ? (
+                        <button
+                          type="button"
+                          className="upload-control-btn resume"
+                          title="Resume upload"
+                          aria-label={`Resume uploading ${upload.fileName}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.dispatchEvent(
+                              new CustomEvent('via-resume-upload', {
+                                detail: { uploadKey: upload.uploadKey },
+                              }),
+                            );
+                          }}
+                        >
+                          <Play size={11} />
+                        </button>
+                      ) : !isCompleting ? (
+                        <button
+                          type="button"
+                          className="upload-control-btn pause"
+                          title="Pause upload"
+                          aria-label={`Pause uploading ${upload.fileName}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.dispatchEvent(
+                              new CustomEvent('via-pause-upload', {
+                                detail: { uploadKey: upload.uploadKey },
+                              }),
+                            );
+                          }}
+                        >
+                          <Pause size={11} />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="upload-control-btn cancel"
+                        title="Cancel upload"
+                        aria-label={`Cancel uploading ${upload.fileName}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.dispatchEvent(
+                            new CustomEvent('via-cancel-upload', {
+                              detail: { uploadKey: upload.uploadKey },
+                            }),
+                          );
+                        }}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
             {sources.map((source) => {
               const isPdf =
                 source.fileType === 'application/pdf' ||
@@ -301,7 +441,10 @@ export function SubjectNode({ id, data }: NodeProps) {
                     <small
                       className={`source-status ${source.status.toLowerCase()}`}
                     >
-                      {source.status}
+                      {source.status === 'PROCESSING' &&
+                      source.progress !== undefined
+                        ? `${source.progress}%`
+                        : source.status}
                     </small>
                   </button>
                   {isEditing ? (

@@ -151,7 +151,10 @@ export function CopyGraphDialog({
           ) : null}
         </div>
 
-        <div className="copy-limit-summary" aria-label="Current graph limits">
+        <section
+          className="copy-limit-summary"
+          aria-label="Current graph limits"
+        >
           <div>
             <span>Graphs</span>
             <strong>
@@ -165,7 +168,11 @@ export function CopyGraphDialog({
               {formatLimit(limits?.nodesPerGraph.limit)}
             </strong>
           </div>
-        </div>
+          <div>
+            <span>Private graphs</span>
+            <strong>{formatLimit(limits?.privateGraphs?.limit)}</strong>
+          </div>
+        </section>
         {graphLimitReached ? (
           <p className="limit-warning">
             Your graph limit has been reached. Copying this graph would exceed

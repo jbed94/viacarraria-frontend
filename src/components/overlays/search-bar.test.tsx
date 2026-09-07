@@ -37,6 +37,9 @@ describe('SearchBar', () => {
     const onSearch = vi.fn().mockResolvedValue(undefined);
     render(<SearchBar onSearch={onSearch} tier="FREE" />);
 
+    // Open options drawer
+    fireEvent.click(screen.getByRole('button', { name: 'Search options' }));
+
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'adjacent context' },
@@ -51,14 +54,36 @@ describe('SearchBar', () => {
     );
   });
 
-  it('hides extended search for anonymous users', () => {
-    render(<SearchBar onSearch={vi.fn()} tier="ANONYMOUS" />);
+  it('shows disabled extended search with sign-in prompt for anonymous users and triggers auth prompt', () => {
+    const onRequireAuth = vi.fn();
+    render(
+      <SearchBar
+        onSearch={vi.fn()}
+        tier="ANONYMOUS"
+        onRequireAuth={onRequireAuth}
+      />,
+    );
 
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    // Open options drawer
+    fireEvent.click(screen.getByRole('button', { name: 'Search options' }));
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox).toBeDisabled();
+    expect(screen.getByText('Sign in')).toBeInTheDocument();
+
+    // Clicking the toggle invokes onRequireAuth
+    const toggleLabel = checkbox.closest('label');
+    expect(toggleLabel).toBeInTheDocument();
+    fireEvent.click(toggleLabel!);
+    expect(onRequireAuth).toHaveBeenCalledTimes(1);
   });
 
   it('associates the Extended description with the checkbox', () => {
     render(<SearchBar onSearch={vi.fn()} tier="FREE" />);
+
+    // Open options drawer
+    fireEvent.click(screen.getByRole('button', { name: 'Search options' }));
 
     const checkbox = screen.getByRole('checkbox');
     const description = screen.getByRole('tooltip');
@@ -100,5 +125,39 @@ describe('SearchBar', () => {
       'high',
       'wide',
     );
+  });
+
+  it('displays a circular progress bar and disables button while search is pending', async () => {
+    let resolveSearch: () => void = () => {};
+    const pendingSearchPromise = new Promise<void>((resolve) => {
+      resolveSearch = resolve;
+    });
+    const onSearch = vi.fn().mockReturnValue(pendingSearchPromise);
+
+    render(<SearchBar onSearch={onSearch} />);
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'quantum computing' },
+    });
+
+    const searchButton = screen.getByRole('button', { name: 'Search' });
+    expect(searchButton).not.toBeDisabled();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    fireEvent.click(searchButton);
+
+    // During pending search:
+    expect(searchButton).toBeDisabled();
+    expect(searchButton).toHaveAttribute('aria-busy', 'true');
+    const progressBar = screen.getByRole('progressbar', { name: 'Search' });
+    expect(progressBar).toBeInTheDocument();
+
+    // Resolve search
+    resolveSearch();
+    await waitFor(() => {
+      expect(searchButton).not.toBeDisabled();
+      expect(searchButton).toHaveAttribute('aria-busy', 'false');
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
   });
 });

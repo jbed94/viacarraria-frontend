@@ -1,4 +1,4 @@
-import { AlertTriangle, Globe, Lock } from 'lucide-react';
+import { AlertTriangle, Globe, Lock, ShieldCheck } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -14,6 +14,7 @@ type GraphSettingsDialogProps = {
     title: string;
     description: string;
     isPublic: boolean;
+    isExemptFromRetention?: boolean;
   }) => Promise<void>;
   onOpenPricing: () => void;
 };
@@ -29,6 +30,7 @@ export function GraphSettingsDialog({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [isExemptFromRetention, setIsExemptFromRetention] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export function GraphSettingsDialog({
       setTitle(graph.title);
       setDescription(graph.description ?? '');
       setIsPublic(graph.isPublic);
+      setIsExemptFromRetention(graph.isExemptFromRetention ?? false);
     }
   }, [graph, open]);
 
@@ -59,6 +62,7 @@ export function GraphSettingsDialog({
         title: title.trim(),
         description: description.trim(),
         isPublic,
+        isExemptFromRetention,
       });
       onOpenChange(false);
     } finally {
@@ -164,6 +168,55 @@ export function GraphSettingsDialog({
               </button>
             </p>
           ) : null}
+        </div>
+
+        <div className="retention-settings-block">
+          <label
+            className={`retention-checkbox-card ${isExemptFromRetention ? 'selected' : ''}`}
+          >
+            <input
+              type="checkbox"
+              name="graph-retention-exemption"
+              checked={isExemptFromRetention}
+              onClick={(event) => {
+                if (limits?.tier !== 'PRO') {
+                  event.preventDefault();
+                  onOpenChange(false);
+                  onOpenPricing();
+                }
+              }}
+              onChange={(event) => {
+                if (limits?.tier !== 'PRO') {
+                  event.preventDefault();
+                  return;
+                }
+                setIsExemptFromRetention(event.target.checked);
+              }}
+            />
+            <div className="retention-card-content">
+              <div className="retention-title">
+                <ShieldCheck size={14} aria-hidden="true" />
+                <strong>Preserve graph indefinitely</strong>
+                <span className="pro-tier-badge">PRO</span>
+              </div>
+              <span className="retention-desc">
+                Never delete due to inactivity. Standard graphs are scheduled
+                for removal after prolonged inactivity without access.
+                {limits?.tier !== 'PRO' ? (
+                  <span className="pro-hint">
+                    {' '}
+                    Upgrade to PRO to exempt this graph.
+                  </span>
+                ) : (
+                  <span>
+                    {' '}
+                    Active exemption protects this graph and its sources
+                    permanently.
+                  </span>
+                )}
+              </span>
+            </div>
+          </label>
         </div>
 
         <div className="dialog-actions">

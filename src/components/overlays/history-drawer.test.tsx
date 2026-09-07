@@ -98,7 +98,11 @@ describe('HistoryDrawer', () => {
 
     const renameButtons = screen.getAllByTitle('Rename search');
     // Entry 2 (pinned) is first, Entry 1 (unpinned) is second
-    fireEvent.click(renameButtons[1]!);
+    const unpinnedRenameBtn = renameButtons[1];
+    expect(unpinnedRenameBtn).toBeDefined();
+    if (unpinnedRenameBtn) {
+      fireEvent.click(unpinnedRenameBtn);
+    }
 
     // Input appears
     const input = screen.getByPlaceholderText('Custom search name...');
@@ -124,7 +128,11 @@ describe('HistoryDrawer', () => {
     );
 
     const renameButtons = screen.getAllByTitle('Rename search');
-    fireEvent.click(renameButtons[1]!);
+    const unpinnedRenameBtn = renameButtons[1];
+    expect(unpinnedRenameBtn).toBeDefined();
+    if (unpinnedRenameBtn) {
+      fireEvent.click(unpinnedRenameBtn);
+    }
 
     expect(
       screen.getByPlaceholderText('Custom search name...'),
@@ -156,12 +164,20 @@ describe('HistoryDrawer', () => {
 
     // Load into search bar (entry 1 is unpinned, index 1)
     const searchBtns = screen.getAllByTitle('Load into search bar');
-    fireEvent.click(searchBtns[1]!);
+    const targetSearchBtn = searchBtns[1];
+    expect(targetSearchBtn).toBeDefined();
+    if (targetSearchBtn) {
+      fireEvent.click(targetSearchBtn);
+    }
     expect(onEdit).toHaveBeenCalledWith(mockEntries[0]);
 
     // Toggle pin (entry 1 is unpinned, index 1)
     const pinBtns = screen.getAllByTitle(/pin query/i);
-    fireEvent.click(pinBtns[1]!);
+    const targetPinBtn = pinBtns[1];
+    expect(targetPinBtn).toBeDefined();
+    if (targetPinBtn) {
+      fireEvent.click(targetPinBtn);
+    }
     expect(onTogglePin).toHaveBeenCalledWith(mockEntries[0]);
   });
 

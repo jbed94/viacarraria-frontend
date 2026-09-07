@@ -1,10 +1,10 @@
+import { Bookmark, Check, History, Pencil, Search, X } from 'lucide-react';
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
   useState,
 } from 'react';
-import { Bookmark, Check, History, Pencil, Search, X } from 'lucide-react';
 
 import type { QueryHistory, SearchResponse } from '../../types/api';
 
@@ -379,13 +379,25 @@ export function HistoryDrawer({
           <p className="empty-state">Your searches will collect here.</p>
         ) : (
           <>
+            {pinnedEntries.length > 0 ? (
+              <div className="history-section-header">
+                <Bookmark
+                  size={11}
+                  className="history-section-icon"
+                  aria-hidden="true"
+                />
+                <span>Pinned</span>
+              </div>
+            ) : null}
             {pinnedEntries.map(renderEntry)}
             {pinnedEntries.length > 0 && unpinnedEntries.length > 0 ? (
               <div
                 className="history-pinned-separator"
                 role="separator"
                 aria-label="Pinned queries separator"
-              />
+              >
+                <span className="history-separator-label">Recent</span>
+              </div>
             ) : null}
             {unpinnedEntries.map(renderEntry)}
           </>

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -12,6 +11,7 @@ import {
   Table,
   Target,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import { DialogFrame } from './dialog-frame';
 
@@ -36,7 +36,7 @@ export function ResultsGuideDialog({
       className="results-guide-dialog"
     >
       <div className="guide-dialog-container">
-        <nav className="guide-tabs" role="tablist" aria-label="Guide Sections">
+        <div className="guide-tabs" role="tablist" aria-label="Guide Sections">
           <button
             type="button"
             role="tab"
@@ -67,7 +67,7 @@ export function ResultsGuideDialog({
             <Search size={14} aria-hidden="true" />
             <span>How Search Works</span>
           </button>
-        </nav>
+        </div>
 
         <div className="guide-tab-content">
           {activeTab === 'legend' ? (

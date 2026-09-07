@@ -93,6 +93,61 @@ describe('GraphSettingsDialog', () => {
       title: 'Updated Architecture',
       description: 'System components',
       isPublic: true,
+      isExemptFromRetention: false,
+    });
+  });
+
+  it('intercepts retention exemption click for non-PRO user and opens pricing dialog', () => {
+    const onOpenPricing = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <GraphSettingsDialog
+        graph={mockGraph}
+        limits={mockLimits}
+        open={true}
+        onOpenChange={onOpenChange}
+        onSave={vi.fn()}
+        onOpenPricing={onOpenPricing}
+      />,
+    );
+
+    const checkbox = screen.getByRole('checkbox', {
+      name: /Preserve graph indefinitely/i,
+    });
+    fireEvent.click(checkbox);
+
+    expect(onOpenPricing).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('allows toggling retention exemption for PRO user and submits setting', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const proLimits = { ...mockLimits, tier: 'PRO' as const };
+    render(
+      <GraphSettingsDialog
+        graph={mockGraph}
+        limits={proLimits}
+        open={true}
+        onOpenChange={vi.fn()}
+        onSave={onSave}
+        onOpenPricing={vi.fn()}
+      />,
+    );
+
+    const checkbox = screen.getByRole('checkbox', {
+      name: /Preserve graph indefinitely/i,
+    });
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(onSave).toHaveBeenCalledWith({
+      title: 'My Architecture',
+      description: 'System components',
+      isPublic: true,
+      isExemptFromRetention: true,
     });
   });
 });

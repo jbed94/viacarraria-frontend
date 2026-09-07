@@ -513,22 +513,28 @@ export function SourceViewerDialog({
                   className="source-pdf-embed"
                   title={source?.name ?? 'PDF Document'}
                 >
-                  <div className="pdf-fallback-container">
-                    <FileText size={32} className="pdf-fallback-icon" />
-                    <p>
-                      PDF inline preview is not supported directly by your
-                      browser.
-                    </p>
-                    <a
-                      href={api.sourceDownloadUrl(sourceId)}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="view-mode-btn source-download-btn pdf-fallback-btn"
-                    >
-                      <Download size={13} />
-                      <span>Download or Open PDF</span>
-                    </a>
-                  </div>
+                  <iframe
+                    src={`${api.sourceDownloadUrl(sourceId)}#page=${currentMatch?.pageNum ?? 1}&zoom=100`}
+                    className="source-pdf-embed"
+                    title={source?.name ?? 'PDF Document Preview'}
+                  >
+                    <div className="pdf-fallback-container">
+                      <FileText size={32} className="pdf-fallback-icon" />
+                      <p>
+                        PDF inline preview is not supported directly by your
+                        browser.
+                      </p>
+                      <a
+                        href={api.sourceDownloadUrl(sourceId)}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="view-mode-btn source-download-btn pdf-fallback-btn"
+                      >
+                        <Download size={13} />
+                        <span>Download or Open PDF</span>
+                      </a>
+                    </div>
+                  </iframe>
                 </object>
                 {showOverlay &&
                 currentMatch?.coordinates &&

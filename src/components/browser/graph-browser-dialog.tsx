@@ -195,64 +195,121 @@ export function GraphBrowserDialog({
               <thead>
                 <tr>
                   <th
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSort('title')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSort('title');
+                      }
+                    }}
                     className="sortable-col"
                   >
-                    <span>Graph Title & Description</span>
-                    <SortIcon
-                      field="title"
-                      currentField={sortField}
-                      order={sortOrder}
-                    />
+                    <div className="th-content">
+                      <span>Graph Title & Description</span>
+                      <SortIcon
+                        field="title"
+                        currentField={sortField}
+                        order={sortOrder}
+                      />
+                    </div>
                   </th>
-                  <th>Owner</th>
+                  <th className="browser-graph-owner">
+                    <div className="th-content">
+                      <span>Owner</span>
+                    </div>
+                  </th>
                   <th
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSort('viewerCount')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSort('viewerCount');
+                      }
+                    }}
                     className="sortable-col num-col"
                   >
-                    <span title="Active viewers">
-                      <Users size={13} /> Viewers
-                    </span>
-                    <SortIcon
-                      field="viewerCount"
-                      currentField={sortField}
-                      order={sortOrder}
-                    />
+                    <div className="th-content" title="Active viewers">
+                      <Users size={13} aria-hidden="true" />
+                      <span>Viewers</span>
+                      <SortIcon
+                        field="viewerCount"
+                        currentField={sortField}
+                        order={sortOrder}
+                      />
+                    </div>
                   </th>
                   <th
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSort('nodeCount')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSort('nodeCount');
+                      }
+                    }}
                     className="sortable-col num-col"
                   >
-                    <span>Nodes</span>
-                    <SortIcon
-                      field="nodeCount"
-                      currentField={sortField}
-                      order={sortOrder}
-                    />
+                    <div className="th-content">
+                      <span>Nodes</span>
+                      <SortIcon
+                        field="nodeCount"
+                        currentField={sortField}
+                        order={sortOrder}
+                      />
+                    </div>
                   </th>
                   <th
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSort('sourceCount')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSort('sourceCount');
+                      }
+                    }}
                     className="sortable-col num-col"
                   >
-                    <span>Sources</span>
-                    <SortIcon
-                      field="sourceCount"
-                      currentField={sortField}
-                      order={sortOrder}
-                    />
+                    <div className="th-content">
+                      <span>Sources</span>
+                      <SortIcon
+                        field="sourceCount"
+                        currentField={sortField}
+                        order={sortOrder}
+                      />
+                    </div>
                   </th>
                   <th
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSort('updatedAt')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleSort('updatedAt');
+                      }
+                    }}
                     className="sortable-col date-col"
                   >
-                    <span>Updated</span>
-                    <SortIcon
-                      field="updatedAt"
-                      currentField={sortField}
-                      order={sortOrder}
-                    />
+                    <div className="th-content">
+                      <span>Updated</span>
+                      <SortIcon
+                        field="updatedAt"
+                        currentField={sortField}
+                        order={sortOrder}
+                      />
+                    </div>
                   </th>
-                  <th className="action-col">Actions</th>
+                  <th className="action-col">
+                    <div className="th-content">
+                      <span>Actions</span>
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -278,7 +335,8 @@ export function GraphBrowserDialog({
                   >
                     <td className="browser-graph-primary">
                       <div className="browser-graph-title-row">
-                        <strong
+                        <button
+                          type="button"
                           className="browser-graph-title"
                           onClick={() => {
                             onSelectGraph(item.id);
@@ -286,12 +344,20 @@ export function GraphBrowserDialog({
                           }}
                         >
                           {item.title}
-                        </strong>
+                        </button>
                         {item.isOwned ? (
                           <span className="browser-badge is-mine">Yours</span>
                         ) : item.isAttached ? (
                           <span className="browser-badge is-attached">
                             Attached
+                          </span>
+                        ) : null}
+                        {item.scheduledForDeletionAt ? (
+                          <span
+                            className="browser-badge is-scheduled-deletion"
+                            title={`Scheduled for deletion on ${new Date(item.scheduledForDeletionAt).toLocaleDateString()} due to inactivity. Any interaction restores it.`}
+                          >
+                            ⚠️ Deletion Scheduled
                           </span>
                         ) : null}
                       </div>

@@ -1,6 +1,8 @@
 import {
-  BookmarkPlus,
+  Archive,
+  Bell,
   BookOpen,
+  BookmarkPlus,
   ChevronDown,
   CircleUserRound,
   Copy,
@@ -15,6 +17,7 @@ import {
   Sliders,
   Sun,
   Users,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +29,7 @@ import type {
   Identity,
   LimitStatus,
   LimitsSummary,
+  NotificationItem,
 } from '../../types/api';
 
 type HeaderProps = {
@@ -46,6 +50,13 @@ type HeaderProps = {
   onOpenPricing: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  notifications?: NotificationItem[];
+  unreadCount?: number;
+  onMarkNotificationRead?: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
+  onDeleteNotification?: (id: string) => void;
+  onNotificationClick?: (notification: NotificationItem) => void;
+  onOpenRetentionDashboard?: () => void;
 };
 
 const languageOptions = [
@@ -73,11 +84,19 @@ export function Header({
   onOpenPricing,
   theme,
   onThemeChange,
+  notifications,
+  unreadCount,
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+  onDeleteNotification,
+  onNotificationClick,
+  onOpenRetentionDashboard,
 }: HeaderProps) {
   const { i18n, t } = useTranslation();
   const [languageOpen, setLanguageOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [limitsOpen, setLimitsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const canEdit = graph?.canEdit ?? graph?.isOwned ?? false;
   const selectedLanguage =
     languageOptions.find((option) => option.value === i18n.language) ??
@@ -195,6 +214,14 @@ export function Header({
               <span>Priv</span>
             </span>
           )}
+          {graph.scheduledForDeletionAt ? (
+            <span
+              className="graph-visibility-badge is-scheduled-deletion"
+              title={`Scheduled for deletion on ${new Date(graph.scheduledForDeletionAt).toLocaleDateString()} due to inactivity. Interacting with this graph will restore it.`}
+            >
+              <span>⚠️ Deletion Scheduled</span>
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -253,6 +280,7 @@ export function Header({
               setLimitsOpen((open) => !open);
               setLanguageOpen(false);
               setThemeOpen(false);
+              setNotificationsOpen(false);
             }}
           >
             <Gauge size={17} />
@@ -319,6 +347,144 @@ export function Header({
           <Plus size={16} />
           {t('createGraph')}
         </button>
+        <div className="notifications-control">
+          <button
+            type="button"
+            className={`icon-button notification-bell-btn ${notificationsOpen ? 'is-active' : ''}`}
+            title="Notifications"
+            aria-label="Notifications"
+            aria-expanded={notificationsOpen}
+            onClick={() => {
+              setNotificationsOpen((open) => !open);
+              setLimitsOpen(false);
+              setLanguageOpen(false);
+              setThemeOpen(false);
+            }}
+          >
+            <Bell size={17} />
+            {unreadCount != null && unreadCount > 0 ? (
+              <span
+                className="notification-badge"
+                aria-label={`${unreadCount} unread notifications`}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
+          </button>
+          {notificationsOpen ? (
+            <div
+              className="notifications-menu"
+              role="region"
+              aria-label="Notifications"
+            >
+              <div className="notifications-menu-heading">
+                <strong>Notifications</strong>
+                {unreadCount != null && unreadCount > 0 ? (
+                  <span className="unread-counter-tag">{unreadCount} new</span>
+                ) : null}
+                {unreadCount != null &&
+                unreadCount > 0 &&
+                onMarkAllNotificationsRead ? (
+                  <button
+                    type="button"
+                    className="link-button mark-all-read-btn"
+                    onClick={() => void onMarkAllNotificationsRead()}
+                  >
+                    Mark all read
+                  </button>
+                ) : null}
+              </div>
+              {notifications && notifications.length > 0 ? (
+                <div className="notifications-list" role="list">
+                  {notifications.map((item) => (
+                    <div
+                      key={item.id}
+                      role="listitem"
+                      className={`notification-card ${!item.isRead ? 'is-unread' : ''} ${item.data?.graphId ? 'is-interactive' : ''}`}
+                      onClick={() => {
+                        if (onNotificationClick) {
+                          onNotificationClick(item);
+                        } else {
+                          if (!item.isRead && onMarkNotificationRead) {
+                            onMarkNotificationRead(item.id);
+                          }
+                          if (item.data?.graphId) {
+                            onGraphChange(item.data.graphId);
+                          }
+                        }
+                        setNotificationsOpen(false);
+                      }}
+                    >
+                      <div className="notification-card-main">
+                        <div className="notification-card-header">
+                          <span className="notification-card-title">
+                            {item.title}
+                          </span>
+                          {!item.isRead ? (
+                            <span
+                              className="notification-unread-dot"
+                              title="Unread"
+                            />
+                          ) : null}
+                        </div>
+                        <p className="notification-card-message">
+                          {item.message}
+                        </p>
+                        <div className="notification-card-footer">
+                          <span className="notification-card-time">
+                            {new Date(item.createdAt).toLocaleDateString(
+                              undefined,
+                              {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              },
+                            )}
+                          </span>
+                          {item.data?.graphId ? (
+                            <span className="notification-card-action">
+                              Click to keep active
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      {onDeleteNotification ? (
+                        <button
+                          type="button"
+                          className="notification-dismiss-btn"
+                          title="Dismiss notification"
+                          aria-label="Dismiss notification"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteNotification(item.id);
+                          }}
+                        >
+                          <X size={13} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-state notifications-empty">
+                  No notifications
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
+        {!identity?.isGuest && onOpenRetentionDashboard ? (
+          <button
+            type="button"
+            className="icon-button retention-dashboard-btn"
+            title="Retention & Cold Storage"
+            aria-label="Retention & Cold Storage"
+            onClick={onOpenRetentionDashboard}
+          >
+            <Archive size={17} />
+          </button>
+        ) : null}
         <div className="picker-control language-picker">
           <button
             type="button"
@@ -328,6 +494,7 @@ export function Header({
             onClick={() => {
               setLanguageOpen((open) => !open);
               setThemeOpen(false);
+              setNotificationsOpen(false);
             }}
           >
             <span className="country-flag" aria-hidden="true">
@@ -366,6 +533,7 @@ export function Header({
             onClick={() => {
               setThemeOpen((open) => !open);
               setLanguageOpen(false);
+              setNotificationsOpen(false);
             }}
           >
             <ThemeIcon size={15} aria-hidden="true" />

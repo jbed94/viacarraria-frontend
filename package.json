@@ -12,12 +12,17 @@
   },
   "scripts": {
     "build": "tsc -b && vite build",
+    "build:admin": "tsc -b && vite build --config vite.admin.config.ts",
     "dev": "vite",
+    "dev:admin": "vite --config vite.admin.config.ts",
     "preview": "vite preview",
+    "preview:admin": "vite preview --config vite.admin.config.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:perf": "playwright test e2e/canvas-performance.spec.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -42,6 +47,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.2",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.1.12",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",

@@ -9,6 +9,7 @@ import type {
   SearchSensitivity,
   SubscriptionTier,
 } from '../../types/api';
+import { CircularProgress } from '../ui/circular-progress';
 import { LineSlicer } from '../ui/line-slicer';
 
 type SearchBarProps = {
@@ -20,9 +21,15 @@ type SearchBarProps = {
   ) => Promise<void>;
   queryForEdit?: string;
   tier?: SubscriptionTier;
+  onRequireAuth?: () => void;
 };
 
-export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
+export function SearchBar({
+  onSearch,
+  queryForEdit,
+  tier,
+  onRequireAuth,
+}: SearchBarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [extendedSearch, setExtendedSearch] = useState(false);
@@ -70,6 +77,13 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
     setResults(undefined);
   }
 
+  const isGuest = !tier || tier === 'ANONYMOUS';
+  const extendedQuotaDesc = isGuest
+    ? t('extendedSearchGuestQuota')
+    : t('extendedSearchQuota', {
+        count: tier === 'PRO' ? 15 : 3,
+      });
+
   const sensitivityDesc =
     sensitivity === 'low'
       ? t('sensitivityLowDesc')
@@ -84,7 +98,8 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
         ? t('scopeWideDesc')
         : t('scopeNormalDesc');
 
-  const isCustomOptions = sensitivity !== 'medium' || scope !== 'normal';
+  const isCustomOptions =
+    sensitivity !== 'medium' || scope !== 'normal' || extendedSearch;
 
   return (
     <form
@@ -92,9 +107,8 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
       onSubmit={(event) => void submit(event)}
     >
       {showOptions ? (
-        <div
+        <section
           className="search-options-drawer"
-          role="region"
           aria-label={t('queryOptions')}
         >
           <div className="search-option-group">
@@ -122,7 +136,52 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
               onChange={setScope}
             />
           </div>
-        </div>
+
+          <div className="search-option-group">
+            <div className="search-option-header">
+              <span className="search-option-label">{t('extendedSearch')}</span>
+              <span className="search-option-desc">{extendedQuotaDesc}</span>
+            </div>
+            <label
+              className={`extended-search-toggle ${isGuest ? 'is-disabled' : ''}`}
+              title={extendedQuotaDesc}
+              onClick={(event) => {
+                if (isGuest) {
+                  event.preventDefault();
+                  onRequireAuth?.();
+                }
+              }}
+            >
+              <input
+                aria-describedby="extended-search-description"
+                type="checkbox"
+                checked={isGuest ? false : extendedSearch}
+                disabled={isGuest}
+                onChange={(event) => {
+                  if (!isGuest) {
+                    setExtendedSearch(event.target.checked);
+                  }
+                }}
+              />
+              <span className="toggle-switch-track">
+                <span className="toggle-switch-thumb" />
+              </span>
+              <span>{t('extendedSearch')}</span>
+              {isGuest ? (
+                <span className="extended-search-badge">
+                  {t('extendedSearchSignInPrompt')}
+                </span>
+              ) : null}
+              <span
+                id="extended-search-description"
+                className="extended-search-tooltip"
+                role="tooltip"
+              >
+                {extendedQuotaDesc}
+              </span>
+            </label>
+          </div>
+        </section>
       ) : null}
 
       <Search size={19} aria-hidden="true" />
@@ -156,33 +215,22 @@ export function SearchBar({ onSearch, queryForEdit, tier }: SearchBarProps) {
       >
         <SlidersHorizontal size={16} />
       </button>
-      {tier && tier !== 'ANONYMOUS' ? (
-        <label
-          className="extended-search-toggle"
-          title={t('extendedSearchQuota', {
-            count: tier === 'PRO' ? 15 : 3,
-          })}
-        >
-          <input
-            aria-describedby="extended-search-description"
-            type="checkbox"
-            checked={extendedSearch}
-            onChange={(event) => setExtendedSearch(event.target.checked)}
+      <button
+        type="submit"
+        className="command-button"
+        disabled={isSubmitting}
+        aria-label={t('search')}
+        aria-busy={isSubmitting}
+      >
+        {isSubmitting ? (
+          <CircularProgress
+            size={16}
+            strokeWidth={2.5}
+            aria-label={t('search')}
           />
-          <span>{t('extendedSearch')}</span>
-          <span
-            id="extended-search-description"
-            className="extended-search-tooltip"
-            role="tooltip"
-          >
-            {t('extendedSearchQuota', {
-              count: tier === 'PRO' ? 15 : 3,
-            })}
-          </span>
-        </label>
-      ) : null}
-      <button type="submit" className="command-button" disabled={isSubmitting}>
-        {isSubmitting ? '...' : t('search')}
+        ) : (
+          t('search')
+        )}
       </button>
     </form>
   );

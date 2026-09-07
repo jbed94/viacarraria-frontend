@@ -2,7 +2,7 @@ import katex from 'katex';
 import type { MarkedExtension } from 'marked';
 
 const inlineRule = /^(\${1,2})(?!\$)((?:\\.|[^\\\n])*?(?:\\.|[^\\\n$]))\1/;
-const blockRule = /^(\${1,2})\n((?:\\[^]|[^\\])+?)\n\1(?:\n|$)/;
+const blockRule = /^(\${1,2})\n((?:\\[\s\S]|[^\\])+?)\n\1(?:\n|$)/;
 
 export function katexExtension(): MarkedExtension {
   return {

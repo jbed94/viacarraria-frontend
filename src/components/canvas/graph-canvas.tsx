@@ -1,6 +1,7 @@
 import {
   Background,
   type Connection,
+  ControlButton,
   Controls,
   MarkerType,
   Position,
@@ -9,7 +10,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useRef } from 'react';
+import { Maximize2, Minus, Plus } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import {
   compactNodeHeight,
@@ -31,6 +33,77 @@ export function GraphCanvas() {
   const results = useGraphStore((state) => state.results);
   const expandedNodeIds = useGraphStore((state) => state.expandedNodeIds);
 
+  const graphNodes = graph?.nodes;
+  const graphEdges = graph?.edges;
+
+  const nodes = useMemo(() => {
+    if (!graphNodes) return [];
+    const expandedSet = new Set(expandedNodeIds);
+    return graphNodes.map((node) => {
+      const isExpanded = expandedSet.has(node.id);
+      const width = isExpanded ? expandedNodeWidth : compactNodeWidth;
+      const height = isExpanded ? expandedNodeHeight : compactNodeHeight;
+      const handleY = (height - 9) / 2;
+      return {
+        ...node,
+        type: 'subject',
+        className: 'canvas-node',
+        width,
+        height,
+        handles: [
+          {
+            type: 'target' as const,
+            position: Position.Left,
+            x: 0,
+            y: handleY,
+            width: 9,
+            height: 9,
+          },
+          {
+            type: 'source' as const,
+            position: Position.Right,
+            x: width - 9,
+            y: handleY,
+            width: 9,
+            height: 9,
+          },
+        ],
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        zIndex: isExpanded ? 10 : 0,
+      };
+    });
+  }, [graphNodes, expandedNodeIds]);
+
+  const edges = useMemo(() => {
+    if (!graphEdges) return [];
+    const matchedSet = results?.matchedNodeIds
+      ? new Set(results.matchedNodeIds)
+      : null;
+    return graphEdges.map((edge) => {
+      const isMatched = Boolean(
+        matchedSet &&
+          matchedSet.has(edge.source) &&
+          matchedSet.has(edge.target),
+      );
+      return {
+        ...edge,
+        type: 'smoothstep',
+        className: 'canvas-edge',
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: 'var(--canvas-edge)',
+          width: 18,
+          height: 18,
+        },
+        animated: isMatched,
+        style: isMatched
+          ? { stroke: 'var(--mint)', strokeWidth: 2.5 }
+          : { stroke: 'var(--canvas-edge)', strokeWidth: 2 },
+      };
+    });
+  }, [graphEdges, results?.matchedNodeIds]);
+
   if (!graph) {
     return <div className="canvas-loading" />;
   }
@@ -38,63 +111,8 @@ export function GraphCanvas() {
   return (
     <ReactFlowProvider key={graph.id}>
       <ReactFlow
-        nodes={graph.nodes.map((node) => {
-          const width = expandedNodeIds.includes(node.id)
-            ? expandedNodeWidth
-            : compactNodeWidth;
-          const height = expandedNodeIds.includes(node.id)
-            ? expandedNodeHeight
-            : compactNodeHeight;
-          const handleY = (height - 9) / 2;
-          return {
-            ...node,
-            type: 'subject',
-            className: 'canvas-node',
-            width,
-            height,
-            handles: [
-              {
-                type: 'target' as const,
-                position: Position.Left,
-                x: 0,
-                y: handleY,
-                width: 9,
-                height: 9,
-              },
-              {
-                type: 'source' as const,
-                position: Position.Right,
-                x: width - 9,
-                y: handleY,
-                width: 9,
-                height: 9,
-              },
-            ],
-            sourcePosition: Position.Right,
-            targetPosition: Position.Left,
-            zIndex: expandedNodeIds.includes(node.id) ? 10 : 0,
-          };
-        })}
-        edges={graph.edges.map((edge) => ({
-          ...edge,
-          type: 'smoothstep',
-          className: 'canvas-edge',
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: 'var(--canvas-edge)',
-            width: 18,
-            height: 18,
-          },
-          animated: Boolean(
-            results?.matchedNodeIds.includes(edge.source) &&
-              results.matchedNodeIds.includes(edge.target),
-          ),
-          style:
-            results?.matchedNodeIds.includes(edge.source) &&
-            results.matchedNodeIds.includes(edge.target)
-              ? { stroke: 'var(--mint)', strokeWidth: 2.5 }
-              : { stroke: 'var(--canvas-edge)', strokeWidth: 2 },
-        }))}
+        nodes={nodes}
+        edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={isEditing ? applyNodes : undefined}
         onEdgesChange={isEditing ? applyEdges : undefined}
@@ -109,14 +127,69 @@ export function GraphCanvas() {
         fitViewOptions={{ padding: 0.28, maxZoom: 0.9 }}
         minZoom={0.28}
         maxZoom={1.9}
+        onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
       >
         <ResultsViewport />
         <ExpandedNodeViewport />
         <Background gap={28} size={1.6} color="var(--canvas-dot)" />
-        <Controls position="bottom-right" showInteractive={false} />
+        <CanvasControls />
       </ReactFlow>
     </ReactFlowProvider>
+  );
+}
+
+function CanvasControls() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  function handleZoomIn() {
+    void zoomIn({ duration: 280 });
+  }
+
+  function handleZoomOut() {
+    void zoomOut({ duration: 280 });
+  }
+
+  function handleFitView() {
+    void fitView({
+      duration: 450,
+      padding: window.innerWidth <= 720 ? 0.2 : 0.28,
+      maxZoom: 0.9,
+    });
+  }
+
+  return (
+    <Controls
+      position="bottom-right"
+      showZoom={false}
+      showFitView={false}
+      showInteractive={false}
+    >
+      <ControlButton
+        onClick={handleZoomIn}
+        title="Zoom In (+)"
+        aria-label="Zoom in"
+        className="react-flow__controls-zoomin"
+      >
+        <Plus size={15} />
+      </ControlButton>
+      <ControlButton
+        onClick={handleZoomOut}
+        title="Zoom Out (-)"
+        aria-label="Zoom out"
+        className="react-flow__controls-zoomout"
+      >
+        <Minus size={15} />
+      </ControlButton>
+      <ControlButton
+        onClick={handleFitView}
+        title="Fit View"
+        aria-label="Fit view"
+        className="react-flow__controls-fitview"
+      >
+        <Maximize2 size={14} />
+      </ControlButton>
+    </Controls>
   );
 }
 

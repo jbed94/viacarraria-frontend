@@ -1,36 +1,76 @@
 import { BookmarkPlus, BookOpen, Copy } from 'lucide-react';
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
-  useRef,
+  useMemo,
   useState,
 } from 'react';
-import { io } from 'socket.io-client';
-import { GraphBrowserDialog } from './components/browser/graph-browser-dialog';
 import { GraphCanvas } from './components/canvas/graph-canvas';
 import { AuthDialog } from './components/dialogs/auth-dialog';
 import { ConfirmationDialog } from './components/dialogs/confirmation-dialog';
 import { CopyGraphDialog } from './components/dialogs/copy-graph-dialog';
 import { GraphDialog } from './components/dialogs/graph-dialog';
-import { GraphSettingsDialog } from './components/dialogs/graph-settings-dialog';
-import { NodeEditorDialog } from './components/dialogs/node-editor-dialog';
-import { PricingDialog } from './components/dialogs/pricing-dialog';
-import { ProfileDialog } from './components/dialogs/profile-dialog';
-import { SourceViewerDialog } from './components/dialogs/source-viewer-dialog';
 import { EditorControls } from './components/overlays/editor-controls';
 import { Header } from './components/overlays/header';
 import {
   HistoryDrawer,
   historyToResults,
 } from './components/overlays/history-drawer';
+import { MaintenanceOverlay } from './components/overlays/maintenance-overlay';
 import { ResultsSidebar } from './components/overlays/results-sidebar';
+import { RetentionWarningBanner } from './components/overlays/retention-warning-banner';
 import { SearchBar } from './components/overlays/search-bar';
+import { useDialogState } from './hooks/use-dialog-state';
+import { useEscapeKey } from './hooks/use-escape-key';
+import { useGraphAutosave } from './hooks/use-graph-autosave';
+import { useNotifications } from './hooks/use-notifications';
+import { useSocketSync } from './hooks/use-socket-sync';
 import { useTheme } from './hooks/use-theme';
-import { ApiError, api } from './lib/api';
+import { useUploadManager } from './hooks/use-upload-manager';
+import { ApiError, api, subscribeMaintenanceMode } from './lib/api';
 import { layoutGraph } from './lib/layout';
+import { getSourceMatches } from './lib/search-utils';
 import { useGraphStore } from './store/graph-store';
-import type { LimitsSummary, QueryHistory, SearchChunk } from './types/api';
+import type { LimitsSummary, QueryHistory } from './types/api';
+
+const GraphBrowserDialog = lazy(() =>
+  import('./components/browser/graph-browser-dialog').then((m) => ({
+    default: m.GraphBrowserDialog,
+  })),
+);
+const GraphSettingsDialog = lazy(() =>
+  import('./components/dialogs/graph-settings-dialog').then((m) => ({
+    default: m.GraphSettingsDialog,
+  })),
+);
+const NodeEditorDialog = lazy(() =>
+  import('./components/dialogs/node-editor-dialog').then((m) => ({
+    default: m.NodeEditorDialog,
+  })),
+);
+const PricingDialog = lazy(() =>
+  import('./components/dialogs/pricing-dialog').then((m) => ({
+    default: m.PricingDialog,
+  })),
+);
+const ProfileDialog = lazy(() =>
+  import('./components/dialogs/profile-dialog').then((m) => ({
+    default: m.ProfileDialog,
+  })),
+);
+const SourceViewerDialog = lazy(() =>
+  import('./components/dialogs/source-viewer-dialog').then((m) => ({
+    default: m.SourceViewerDialog,
+  })),
+);
+const RetentionDashboardDialog = lazy(() =>
+  import('./components/dialogs/retention-dashboard-dialog').then((m) => ({
+    default: m.RetentionDashboardDialog,
+  })),
+);
 
 export function App() {
   const identity = useGraphStore((state) => state.identity);
@@ -47,6 +87,7 @@ export function App() {
   const pendingDeleteNodeId = useGraphStore(
     (state) => state.pendingDeleteNodeId,
   );
+
   const setIdentity = useGraphStore((state) => state.setIdentity);
   const setGraphs = useGraphStore((state) => state.setGraphs);
   const setGraph = useGraphStore((state) => state.setGraph);
@@ -69,18 +110,39 @@ export function App() {
   const replaceCanvas = useGraphStore((state) => state.replaceCanvas);
   const collapseAllNodes = useGraphStore((state) => state.collapseAllNodes);
   const setSelectedNodeIds = useGraphStore((state) => state.setSelectedNodeIds);
-  const lastPersisted = useRef<string | undefined>(undefined);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [pricingOpen, setPricingOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [copyOpen, setCopyOpen] = useState(false);
-  const [browserOpen, setBrowserOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const dialogs = useDialogState();
   const [limits, setLimits] = useState<LimitsSummary>();
   const [queryForEdit, setQueryForEdit] = useState<string>();
   const [isFinalizing, setFinalizing] = useState(false);
   const { theme, setTheme } = useTheme();
+  const [maintenanceState, setMaintenanceState] = useState<{
+    active: boolean;
+    message?: string;
+  }>({ active: false });
+
+  useEffect(() => {
+    return subscribeMaintenanceMode((active, message) => {
+      setMaintenanceState({ active, message });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.pathname.startsWith('/admin') ||
+        window.location.search.includes('page=admin'))
+    ) {
+      const adminUrl =
+        import.meta.env.VITE_ADMIN_URL ||
+        (window.location.hostname === 'localhost'
+          ? `${window.location.protocol}//${window.location.hostname}:4174`
+          : '/admin');
+      if (adminUrl !== '/admin') {
+        window.location.replace(adminUrl);
+      }
+    }
+  }, []);
 
   const reportError = useEffectEvent((requestError: unknown): void => {
     setError(
@@ -92,30 +154,86 @@ export function App() {
 
   const loadGraph = useEffectEvent(async (graphId: string): Promise<void> => {
     const next = await api.graph(graphId);
-    lastPersisted.current = JSON.stringify({
-      nodes: next.nodes,
-      edges: next.edges,
-    });
+    primeSnapshot(next.nodes, next.edges);
     setGraph(next);
   });
 
-  const pollSource = useEffectEvent((sourceId: string): void => {
-    window.setTimeout(() => {
-      void api
-        .source(sourceId)
-        .then((source) => {
-          const current = useGraphStore.getState().graph;
-          if (current)
-            setSources(
-              current.sources.map((item) =>
-                item.id === source.id ? source : item,
-              ),
-            );
-          if (source.status === 'PENDING' || source.status === 'PROCESSING')
-            pollSource(sourceId);
-        })
-        .catch(reportError);
-    }, 700);
+  // Consolidated notification management
+  const {
+    notifications,
+    unreadCount: unreadNotificationsCount,
+    refresh: refreshNotifications,
+    markRead: handleMarkNotificationRead,
+    markAllRead: handleMarkAllNotificationsRead,
+    remove: handleDeleteNotification,
+    handleClick: handleNotificationClick,
+    pushLiveNotification,
+  } = useNotifications({
+    identity,
+    onNavigateGraph: loadGraph,
+    onError: reportError,
+  });
+
+  // Debounced autosave persistence
+  const { primeSnapshot } = useGraphAutosave({
+    graph,
+    isEditing,
+    onError: reportError,
+  });
+
+  // Upload management (controllers, events, auto-resume)
+  useUploadManager({
+    graph,
+    setSources,
+    setLimits,
+    onError: reportError,
+  });
+
+  // Real-time WebSocket room and notification synchronization
+  useSocketSync({
+    graphId: graph?.id,
+    onProgressUpdate: (update) => {
+      const current = useGraphStore.getState().graph;
+      if (current) {
+        setSources(
+          current.sources.map((source) =>
+            source.id === update.sourceId
+              ? {
+                  ...source,
+                  status: update.status,
+                  progress:
+                    update.progress ??
+                    (update.status === 'READY' ? 100 : source.progress),
+                }
+              : source,
+          ),
+        );
+      }
+    },
+    onNewNotification: pushLiveNotification,
+  });
+
+  const handleCloseResults = useCallback(() => {
+    if (activeSourceId) {
+      setActiveSourceId(undefined);
+      setActiveMatch(undefined);
+      return;
+    }
+    setResults(undefined);
+    setActiveMatch(undefined);
+    collapseAllNodes();
+  }, [
+    activeSourceId,
+    setActiveSourceId,
+    setActiveMatch,
+    setResults,
+    collapseAllNodes,
+  ]);
+
+  // Global Escape key shortcut
+  useEscapeKey({
+    hasResults: Boolean(results),
+    onEscapeResults: handleCloseResults,
   });
 
   const bootstrap = useEffectEvent(
@@ -131,6 +249,9 @@ export function App() {
         const target = preferredGraphId ?? graph?.id ?? available[0]?.id;
         if (target) await loadGraph(target);
         setHistory(await api.history());
+        if (!viewer.isGuest) {
+          void refreshNotifications();
+        }
       } catch (requestError) {
         reportError(requestError);
       } finally {
@@ -142,84 +263,6 @@ export function App() {
   useEffect(() => {
     void bootstrap();
   }, []);
-
-  useEffect(() => {
-    if (!isEditing || !graph?.isOwned) return;
-    const snapshot = JSON.stringify({ nodes: graph.nodes, edges: graph.edges });
-    if (snapshot === lastPersisted.current) return;
-    const timer = window.setTimeout(() => {
-      void api
-        .updateGraph(graph.id, graph.nodes, graph.edges)
-        .then(() => {
-          lastPersisted.current = snapshot;
-        })
-        .catch(reportError);
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [graph?.edges, graph?.id, graph?.isOwned, graph?.nodes, isEditing]);
-
-  useEffect(() => {
-    function uploadListener(event: Event): void {
-      const detail = (event as CustomEvent<{ nodeId: string; file: File }>)
-        .detail;
-      if (!graph || !detail) return;
-      void api
-        .uploadSource(graph.id, detail.nodeId, detail.file)
-        .then((source) => {
-          setSources([...graph.sources, source]);
-          void api.limits().then(setLimits).catch(reportError);
-          pollSource(source.id);
-        })
-        .catch(reportError);
-    }
-    window.addEventListener('via-upload-source', uploadListener);
-    function deleteListener(event: Event): void {
-      const detail = (event as CustomEvent<{ sourceId: string }>).detail;
-      if (!detail) return;
-      void api
-        .deleteSource(detail.sourceId)
-        .then(() => {
-          const current = useGraphStore.getState().graph;
-          if (current)
-            setSources(
-              current.sources.filter((source) => source.id !== detail.sourceId),
-            );
-        })
-        .catch(reportError);
-    }
-    window.addEventListener('via-delete-source', deleteListener);
-    return () => {
-      window.removeEventListener('via-upload-source', uploadListener);
-      window.removeEventListener('via-delete-source', deleteListener);
-    };
-  }, [graph, setSources]);
-
-  useEffect(() => {
-    const socket = io(import.meta.env.VITE_WS_URL ?? 'ws://localhost:3000/ws', {
-      transports: ['websocket'],
-      withCredentials: true,
-    });
-    socket.on(
-      'progress:update',
-      (update: {
-        sourceId: string;
-        status: 'PENDING' | 'PROCESSING' | 'READY' | 'ERROR';
-      }) => {
-        const current = useGraphStore.getState().graph;
-        if (current)
-          setSources(
-            current.sources.map((source) =>
-              source.id === update.sourceId
-                ? { ...source, status: update.status }
-                : source,
-            ),
-          );
-      },
-    );
-    return () => {
-      socket.close();
-    };
-  }, [setSources]);
 
   async function search(
     query: string,
@@ -242,50 +285,18 @@ export function App() {
       setHistory(await api.history());
       setLimits(await api.limits());
     } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 401)
-        setAuthOpen(true);
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        dialogs.open('auth');
+      }
       if (
         requestError instanceof ApiError &&
         (requestError.status === 403 || requestError.status === 429)
-      )
-        setPricingOpen(true);
+      ) {
+        dialogs.open('pricing');
+      }
       reportError(requestError);
     }
   }
-
-  const handleCloseResults = useCallback(() => {
-    setResults(undefined);
-    setActiveMatch(undefined);
-    collapseAllNodes();
-  }, [setResults, setActiveMatch, collapseAllNodes]);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return;
-
-      const activeTag = document.activeElement?.tagName.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea') return;
-
-      // Do not intercept if a modal dialog is currently open
-      if (document.querySelector('[role="dialog"]')) return;
-
-      if (results) {
-        event.preventDefault();
-        handleCloseResults();
-        return;
-      }
-
-      const { expandedNodeIds, collapseAllNodes: collapse } =
-        useGraphStore.getState();
-      if (expandedNodeIds.length > 0) {
-        event.preventDefault();
-        collapse();
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [results, handleCloseResults]);
 
   async function createGraph(
     title: string,
@@ -293,8 +304,8 @@ export function App() {
     isPublic = false,
   ): Promise<void> {
     if (identity?.isGuest) {
-      setCreateOpen(false);
-      setAuthOpen(true);
+      dialogs.close('create');
+      dialogs.open('auth');
       return;
     }
     try {
@@ -304,8 +315,9 @@ export function App() {
       setLimits(await api.limits());
       setEditing(true);
     } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 403)
-        setPricingOpen(true);
+      if (requestError instanceof ApiError && requestError.status === 403) {
+        dialogs.open('pricing');
+      }
       reportError(requestError);
     }
   }
@@ -313,7 +325,7 @@ export function App() {
   async function copyGraph(title: string, isPublic = false): Promise<boolean> {
     if (!graph) return false;
     if (!identity || identity.isGuest) {
-      setAuthOpen(true);
+      dialogs.open('auth');
       return false;
     }
     try {
@@ -325,7 +337,7 @@ export function App() {
       return true;
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 403) {
-        setPricingOpen(true);
+        dialogs.open('pricing');
       }
       reportError(requestError);
       return false;
@@ -334,7 +346,7 @@ export function App() {
 
   async function attachGraph(id: string): Promise<void> {
     if (identity?.isGuest) {
-      setAuthOpen(true);
+      dialogs.open('auth');
       return;
     }
     try {
@@ -352,6 +364,7 @@ export function App() {
     title: string;
     description: string;
     isPublic: boolean;
+    isExemptFromRetention?: boolean;
   }): Promise<void> {
     if (!graph) return;
     try {
@@ -359,9 +372,10 @@ export function App() {
       setGraphs(await api.graphs());
       await loadGraph(graph.id);
       setLimits(await api.limits());
+      void refreshNotifications();
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 403) {
-        setPricingOpen(true);
+        dialogs.open('pricing');
       }
       reportError(requestError);
     }
@@ -382,8 +396,9 @@ export function App() {
   }
 
   function arrangeGraph(): void {
-    if (graph)
+    if (graph) {
       replaceCanvas(layoutGraph(graph.nodes, graph.edges), graph.edges);
+    }
   }
 
   function restoreHistory(entry: QueryHistory): void {
@@ -401,32 +416,19 @@ export function App() {
   }
 
   function editHistory(entry: QueryHistory): void {
-    if (entry.graphId !== graph?.id)
+    if (entry.graphId !== graph?.id) {
       void loadGraph(entry.graphId).catch(reportError);
+    }
     setQueryForEdit(entry.queryText);
     setSelectedNodeIds(entry.selectedNodeIds);
     setMode('CONTEXT_SELECTION');
   }
 
   const currentNode = graph?.nodes.find((node) => node.id === editingNodeId);
-  const sourceMatches =
-    activeSourceId && results
-      ? (() => {
-          const allQueryChunks = results.results
-            .flatMap((result) => result.chunks)
-            .flatMap((chunk) => [chunk, ...(chunk.extendedContext ?? [])])
-            .filter((chunk) => chunk.sourceId === activeSourceId);
-
-          const unique = new Map<string, SearchChunk>();
-          for (const chunk of allQueryChunks) {
-            const key = `${chunk.sourceId}:${chunk.startChar}:${chunk.endChar}`;
-            if (!unique.has(key) || chunk.kind === 'MATCH') {
-              unique.set(key, chunk);
-            }
-          }
-          return [...unique.values()];
-        })()
-      : [];
+  const sourceMatches = useMemo(
+    () => getSourceMatches(results, activeSourceId),
+    [results, activeSourceId],
+  );
 
   const isUnattachedPublic = Boolean(
     graph &&
@@ -449,24 +451,40 @@ export function App() {
           isEditing={isEditing}
           onGraphChange={(id) => void loadGraph(id).catch(reportError)}
           onCopy={() => {
-            if (identity?.isGuest) setAuthOpen(true);
-            else setCopyOpen(true);
+            if (identity?.isGuest) dialogs.open('auth');
+            else dialogs.open('copy');
           }}
-          onOpenBrowser={() => setBrowserOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenBrowser={() => dialogs.open('browser')}
+          onOpenSettings={() => dialogs.open('settings')}
           onAttachCurrent={() => {
             if (graph) void attachGraph(graph.id);
           }}
           limits={limits}
           onCreate={() =>
-            identity?.isGuest ? setAuthOpen(true) : setCreateOpen(true)
+            identity?.isGuest ? dialogs.open('auth') : dialogs.open('create')
           }
           onToggleEditing={() => setEditing(!isEditing)}
-          onOpenAuth={() => setAuthOpen(true)}
-          onOpenProfile={() => setProfileOpen(true)}
-          onOpenPricing={() => setPricingOpen(true)}
+          onOpenAuth={() => dialogs.open('auth')}
+          onOpenProfile={() => dialogs.open('profile')}
+          onOpenPricing={() => dialogs.open('pricing')}
+          onOpenRetentionDashboard={() => dialogs.open('retention')}
           theme={theme}
           onThemeChange={setTheme}
+          notifications={notifications}
+          unreadCount={unreadNotificationsCount}
+          onMarkNotificationRead={handleMarkNotificationRead}
+          onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+          onDeleteNotification={handleDeleteNotification}
+          onNotificationClick={handleNotificationClick}
+        />
+        <RetentionWarningBanner
+          graph={graph}
+          onGraphUpdated={(updated) => {
+            setGraph(updated);
+            void api.graphs().then(setGraphs);
+            void refreshNotifications();
+          }}
+          onOpenSettings={() => dialogs.open('settings')}
         />
         {isEditing ? (
           <EditorControls
@@ -497,6 +515,7 @@ export function App() {
         />
         <ResultsSidebar
           results={results}
+          activeSourceId={activeSourceId}
           onOpenSource={(sourceId) => {
             setActiveSourceId(sourceId);
             setActiveMatch(undefined);
@@ -535,7 +554,7 @@ export function App() {
               <button
                 type="button"
                 className="command-button"
-                onClick={() => setCopyOpen(true)}
+                onClick={() => dialogs.open('copy')}
               >
                 <Copy size={14} />
                 <span>Copy Graph</span>
@@ -547,6 +566,7 @@ export function App() {
             onSearch={search}
             queryForEdit={queryForEdit}
             tier={identity?.tier}
+            onRequireAuth={() => dialogs.open('auth')}
           />
         )}
       </div>
@@ -563,97 +583,111 @@ export function App() {
         </button>
       ) : null}
       <AuthDialog
-        open={authOpen}
-        onOpenChange={setAuthOpen}
+        open={dialogs.isOpen('auth')}
+        onOpenChange={(open) => dialogs.set('auth', open)}
         onAuthenticated={(viewer) => {
           setIdentity(viewer);
           void bootstrap(graph?.id);
         }}
       />
       <GraphDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
+        open={dialogs.isOpen('create')}
+        onOpenChange={(open) => dialogs.set('create', open)}
         onCreate={createGraph}
         privateQuota={limits?.privateGraphs}
         tier={identity?.tier}
         onOpenPricing={() => {
-          setCreateOpen(false);
-          setPricingOpen(true);
+          dialogs.close('create');
+          dialogs.open('pricing');
         }}
       />
       <CopyGraphDialog
         graph={graph}
         limits={limits}
-        open={copyOpen}
-        onOpenChange={setCopyOpen}
+        open={dialogs.isOpen('copy')}
+        onOpenChange={(open) => dialogs.set('copy', open)}
         onCopy={copyGraph}
         onOpenPricing={() => {
-          setCopyOpen(false);
-          setPricingOpen(true);
+          dialogs.close('copy');
+          dialogs.open('pricing');
         }}
       />
-      <GraphSettingsDialog
-        graph={graph}
-        limits={limits}
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        onSave={saveGraphSettings}
-        onOpenPricing={() => {
-          setSettingsOpen(false);
-          setPricingOpen(true);
-        }}
-      />
-      <GraphBrowserDialog
-        open={browserOpen}
-        onOpenChange={setBrowserOpen}
-        identity={identity}
-        onSelectGraph={(id) => {
-          void loadGraph(id).catch(reportError);
-        }}
-        onCopyGraph={(target) => {
-          void api.graph(target.id).then((g) => {
-            setGraph(g);
-            setCopyOpen(true);
-          });
-        }}
-        onAttachChange={() => {
-          void api.graphs().then(setGraphs);
-          if (graph) void loadGraph(graph.id);
-        }}
-      />
-      <NodeEditorDialog
-        node={currentNode}
-        onOpenChange={(open) => !open && setEditingNodeId(undefined)}
-        onSave={updateNode}
-      />
-      <SourceViewerDialog
-        sourceId={activeSourceId}
-        matches={sourceMatches}
-        focusedMatch={activeMatch}
-        onOpenChange={(open) => {
-          if (!open) {
-            setActiveSourceId(undefined);
-            setActiveMatch(undefined);
-          }
-        }}
-      />
-      <ProfileDialog
-        identity={identity}
-        open={profileOpen}
-        onOpenChange={setProfileOpen}
-        onIdentityChange={setIdentity}
-        onLogout={async () => {
-          await api.logout();
-          setProfileOpen(false);
-          await bootstrap();
-        }}
-      />
-      <PricingDialog
-        identity={identity}
-        open={pricingOpen}
-        onOpenChange={setPricingOpen}
-        onUpgraded={() => bootstrap(graph?.id)}
-      />
+      <Suspense fallback={null}>
+        <GraphSettingsDialog
+          graph={graph}
+          limits={limits}
+          open={dialogs.isOpen('settings')}
+          onOpenChange={(open) => dialogs.set('settings', open)}
+          onSave={saveGraphSettings}
+          onOpenPricing={() => {
+            dialogs.close('settings');
+            dialogs.open('pricing');
+          }}
+        />
+        <GraphBrowserDialog
+          open={dialogs.isOpen('browser')}
+          onOpenChange={(open) => dialogs.set('browser', open)}
+          identity={identity}
+          onSelectGraph={(id) => {
+            void loadGraph(id).catch(reportError);
+          }}
+          onCopyGraph={(target) => {
+            void api.graph(target.id).then((g) => {
+              setGraph(g);
+              dialogs.open('copy');
+            });
+          }}
+          onAttachChange={() => {
+            void api.graphs().then(setGraphs);
+            if (graph) void loadGraph(graph.id);
+          }}
+        />
+        <NodeEditorDialog
+          node={currentNode}
+          onOpenChange={(open) => !open && setEditingNodeId(undefined)}
+          onSave={updateNode}
+        />
+        <SourceViewerDialog
+          sourceId={activeSourceId}
+          matches={sourceMatches}
+          focusedMatch={activeMatch}
+          onOpenChange={(open) => {
+            if (!open) {
+              setActiveSourceId(undefined);
+              setActiveMatch(undefined);
+            }
+          }}
+        />
+        <ProfileDialog
+          identity={identity}
+          open={dialogs.isOpen('profile')}
+          onOpenChange={(open) => dialogs.set('profile', open)}
+          onIdentityChange={setIdentity}
+          onLogout={async () => {
+            await api.logout();
+            dialogs.close('profile');
+            await bootstrap();
+          }}
+          onOpenRetention={() => {
+            dialogs.close('profile');
+            dialogs.open('retention');
+          }}
+        />
+        <PricingDialog
+          identity={identity}
+          open={dialogs.isOpen('pricing')}
+          onOpenChange={(open) => dialogs.set('pricing', open)}
+          onUpgraded={() => bootstrap(graph?.id)}
+        />
+        <RetentionDashboardDialog
+          open={dialogs.isOpen('retention')}
+          onOpenChange={(open) => dialogs.set('retention', open)}
+          onGraphRestored={(restoredGraphId) => {
+            void api.graphs().then(setGraphs);
+            void loadGraph(restoredGraphId);
+          }}
+        />
+      </Suspense>
       <ConfirmationDialog
         open={Boolean(pendingDeleteNodeId)}
         onOpenChange={(open) => !open && setPendingDeleteNodeId(undefined)}
@@ -664,6 +698,15 @@ export function App() {
           setPendingDeleteNodeId(undefined);
         }}
       />
+      {maintenanceState.active && (
+        <MaintenanceOverlay
+          message={maintenanceState.message}
+          onDismiss={() => {
+            setMaintenanceState({ active: false });
+            void bootstrap(graph?.id);
+          }}
+        />
+      )}
     </main>
   );
 }

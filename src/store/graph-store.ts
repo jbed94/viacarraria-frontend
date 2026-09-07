@@ -23,6 +23,17 @@ import type {
 
 export type GraphMode = 'IDLE' | 'CONTEXT_SELECTION' | 'VISUAL_RESULTS';
 
+export type ActiveUpload = {
+  uploadKey: string;
+  nodeId: string;
+  fileName: string;
+  fileSize: number;
+  progress: number;
+  status: 'uploading' | 'paused' | 'resuming' | 'completing' | 'error';
+  concurrency?: number;
+  speedBps?: number;
+};
+
 type GraphStore = {
   identity?: Identity;
   graph?: Graph;
@@ -39,6 +50,7 @@ type GraphStore = {
   isEditing: boolean;
   isLoading: boolean;
   error?: string;
+  activeUploads: Record<string, ActiveUpload>;
   setIdentity: (identity?: Identity) => void;
   setGraphs: (graphs: GraphSummary[]) => void;
   setGraph: (graph: Graph) => void;
@@ -63,6 +75,13 @@ type GraphStore = {
   replaceCanvas: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   collapseAllNodes: () => void;
   setSources: (sources: Source[]) => void;
+  updateSourceProgress: (
+    sourceId: string,
+    status: Source['status'],
+    progress: number,
+  ) => void;
+  setUploadProgress: (upload: ActiveUpload) => void;
+  removeUploadProgress: (uploadKey: string) => void;
   setLoading: (value: boolean) => void;
   setError: (error?: string) => void;
 };
@@ -75,6 +94,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
   expandedNodeIds: [],
   isEditing: false,
   isLoading: true,
+  activeUploads: {},
   setIdentity: (identity) => set({ identity }),
   setGraphs: (graphs) => set({ graphs }),
   setGraph: (graph) =>
@@ -267,6 +287,31 @@ export const useGraphStore = create<GraphStore>((set) => ({
     set((state) =>
       state.graph ? { graph: { ...state.graph, sources } } : state,
     ),
+  updateSourceProgress: (sourceId, status, progress) =>
+    set((state) => {
+      if (!state.graph) return state;
+      return {
+        graph: {
+          ...state.graph,
+          sources: state.graph.sources.map((source) =>
+            source.id === sourceId ? { ...source, status, progress } : source,
+          ),
+        },
+      };
+    }),
+  setUploadProgress: (upload) =>
+    set((state) => ({
+      activeUploads: {
+        ...state.activeUploads,
+        [upload.uploadKey]: upload,
+      },
+    })),
+  removeUploadProgress: (uploadKey) =>
+    set((state) => {
+      const next = { ...state.activeUploads };
+      delete next[uploadKey];
+      return { activeUploads: next };
+    }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
 }));

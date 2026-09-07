@@ -364,6 +364,44 @@ describe('ResultsSidebar', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('updates exit button and ignores Escape when activeSourceId is present', () => {
+    const onClose = vi.fn();
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 2,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        activeSourceId="source-1"
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+
+    const exitBtn = screen.getByRole('button', { name: 'Close source dialog' });
+    expect(exitBtn).toBeInTheDocument();
+    expect(exitBtn).toHaveAttribute('title', 'Close source dialog');
+
+    // Pressing Escape does not close results when activeSourceId is open
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Clicking exit button calls onClose
+    fireEvent.click(exitBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('renders horizontal resize handle with characteristic lines and toggles width on double click', () => {
     render(
       <ResultsSidebar
@@ -404,7 +442,7 @@ describe('ResultsSidebar', () => {
     expect(sidebar).toHaveStyle({ width: '380px' });
   });
 
-  it('opens Search & Query Answering Guide dialog when info button is clicked', () => {
+  it('opens Search & Query Answering Guide dialog when info button is clicked', async () => {
     render(
       <ResultsSidebar
         results={{
@@ -439,8 +477,8 @@ describe('ResultsSidebar', () => {
     // Click opens guide dialog
     fireEvent.click(infoBtn);
     expect(
-      screen.getByText('Search & Query Answering Guide'),
+      await screen.findByText('Search & Query Answering Guide'),
     ).toBeInTheDocument();
-    expect(screen.getByText('Indicators & Legend')).toBeInTheDocument();
+    expect(await screen.findByText('Indicators & Legend')).toBeInTheDocument();
   });
 });

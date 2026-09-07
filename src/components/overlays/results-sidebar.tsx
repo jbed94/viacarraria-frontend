@@ -10,14 +10,20 @@ import {
   Target,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { SearchChunk, SearchResponse } from '../../types/api';
-import { ResultsGuideDialog } from '../dialogs/results-guide-dialog';
+
+const ResultsGuideDialog = lazy(() =>
+  import('../dialogs/results-guide-dialog').then((m) => ({
+    default: m.ResultsGuideDialog,
+  })),
+);
 
 type ResultsSidebarProps = {
   results?: SearchResponse;
+  activeSourceId?: string;
   onOpenSource: (sourceId: string) => void;
   onOpenMatch: (chunk: SearchChunk) => void;
   onSelectNode?: (nodeId: string) => void;
@@ -75,6 +81,7 @@ export function getAnswerTypeLabel(type?: string): string {
 
 export function ResultsSidebar({
   results,
+  activeSourceId,
   onOpenSource,
   onOpenMatch,
   onSelectNode,
@@ -120,8 +127,8 @@ export function ResultsSidebar({
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
-      // If an open modal dialog is present, do not close results sidebar
-      if (document.querySelector('[role="dialog"]')) return;
+      // If an open modal dialog or active source is present, do not close results sidebar
+      if (document.querySelector('[role="dialog"]') || activeSourceId) return;
 
       event.preventDefault();
       onClose?.();
@@ -129,7 +136,7 @@ export function ResultsSidebar({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [guideOpen, onClose]);
+  }, [guideOpen, onClose, activeSourceId]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -171,15 +178,23 @@ export function ResultsSidebar({
     localStorage.setItem('vc_results_sidebar_width', clamped.toString());
   };
 
+  const sources = useMemo(
+    () => (results ? groupMatchesBySource(results.results) : []),
+    [results?.results],
+  );
+  const totalMatches = useMemo(
+    () => results?.results.reduce((sum, r) => sum + r.chunks.length, 0) ?? 0,
+    [results?.results],
+  );
+  const hasExtendedContext = useMemo(
+    () =>
+      results?.results.some((r) =>
+        r.chunks.some((c) => (c.extendedContext?.length ?? 0) > 0),
+      ) ?? false,
+    [results?.results],
+  );
+
   if (!results) return null;
-  const sources = groupMatchesBySource(results.results);
-  const totalMatches = results.results.reduce(
-    (sum, r) => sum + r.chunks.length,
-    0,
-  );
-  const hasExtendedContext = results.results.some((r) =>
-    r.chunks.some((c) => (c.extendedContext?.length ?? 0) > 0),
-  );
 
   return (
     <>
@@ -233,8 +248,16 @@ export function ResultsSidebar({
                 type="button"
                 className="results-exit-button"
                 onClick={onClose}
-                aria-label={t('closeResults', 'Close results')}
-                title={t('closeResults', 'Exit results view')}
+                aria-label={
+                  activeSourceId
+                    ? t('closeSource', 'Close source dialog')
+                    : t('closeResults', 'Close results')
+                }
+                title={
+                  activeSourceId
+                    ? t('closeSource', 'Close source dialog')
+                    : t('closeResultsTitle', 'Exit results view')
+                }
               >
                 <X size={15} aria-hidden="true" />
               </button>
@@ -531,7 +554,9 @@ export function ResultsSidebar({
           </div>
         </div>
       </aside>
-      <ResultsGuideDialog open={guideOpen} onOpenChange={setGuideOpen} />
+      <Suspense fallback={null}>
+        <ResultsGuideDialog open={guideOpen} onOpenChange={setGuideOpen} />
+      </Suspense>
     </>
   );
 }

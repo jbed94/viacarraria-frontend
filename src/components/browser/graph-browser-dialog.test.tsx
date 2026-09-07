@@ -54,6 +54,24 @@ const mockPublicGraphs: PublicGraphItem[] = [
     createdAt: '2026-02-01T00:00:00.000Z',
     updatedAt: '2026-09-02T00:00:00.000Z',
   },
+  {
+    id: 'g-3',
+    title: 'Ancient History',
+    description: 'Mediterranean Antiquity',
+    userId: 'u-3',
+    ownerName: 'Herodotus',
+    isPublic: true,
+    isPrepared: false,
+    isOwned: false,
+    isAttached: false,
+    canQuery: false,
+    viewerCount: 2,
+    nodeCount: 5,
+    sourceCount: 1,
+    scheduledForDeletionAt: '2026-10-01T00:00:00.000Z',
+    createdAt: '2026-01-15T00:00:00.000Z',
+    updatedAt: '2026-06-01T00:00:00.000Z',
+  },
 ];
 
 describe('GraphBrowserDialog', () => {
@@ -132,12 +150,29 @@ describe('GraphBrowserDialog', () => {
       expect(screen.getByText('Computer Science')).toBeInTheDocument();
     });
 
-    const attachBtn = screen.getByRole('button', { name: /Attach/i });
+    const attachBtn = screen.getAllByRole('button', { name: /Attach/i })[0]!;
     fireEvent.click(attachBtn);
 
     await waitFor(() => {
       expect(api.attachGraph).toHaveBeenCalledWith('g-1');
       expect(onAttachChange).toHaveBeenCalled();
     });
+  });
+
+  it('displays deletion scheduled badge for inactive graphs marked for purge', async () => {
+    render(
+      <GraphBrowserDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        onSelectGraph={vi.fn()}
+        onCopyGraph={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Ancient History')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('⚠️ Deletion Scheduled')).toBeInTheDocument();
   });
 });

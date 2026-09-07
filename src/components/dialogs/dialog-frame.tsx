@@ -31,6 +31,7 @@ export function DialogFrame({
                 type="button"
                 className="icon-button"
                 title="Close dialog"
+                aria-label="Close dialog"
               >
                 <X size={17} />
               </button>
