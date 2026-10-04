@@ -91,7 +91,7 @@ describe('GraphBrowserDialog', () => {
           email: 'me@test.com',
           username: 'Current User',
           isGuest: false,
-          tier: 'FREE',
+          tier: 'REGISTERED',
         }}
         onSelectGraph={vi.fn()}
         onCopyGraph={vi.fn()}
@@ -138,7 +138,7 @@ describe('GraphBrowserDialog', () => {
           email: 'me@test.com',
           username: 'Current User',
           isGuest: false,
-          tier: 'FREE',
+          tier: 'REGISTERED',
         }}
         onSelectGraph={vi.fn()}
         onCopyGraph={vi.fn()}

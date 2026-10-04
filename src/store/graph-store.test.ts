@@ -1,53 +1,118 @@
-import { describe, expect, it } from 'vitest';
-
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Graph } from '../types/api';
 import { useGraphStore } from './graph-store';
 
-describe('graph store', () => {
-  it('limits the default guest context to two nodes', () => {
-    useGraphStore.getState().setIdentity({
-      userId: 'guest',
-      email: null,
-      username: null,
-      isGuest: true,
-      tier: 'ANONYMOUS',
-    });
-    useGraphStore.getState().setGraph({
-      id: 'graph',
-      title: 'Graph',
-      description: null,
-      userId: 'owner',
-      isPublic: true,
-      isPrepared: true,
-      isOwned: false,
-      nodes: [
-        { id: 'one', position: { x: 0, y: 0 }, data: { title: 'One' } },
-        { id: 'two', position: { x: 0, y: 0 }, data: { title: 'Two' } },
-        { id: 'three', position: { x: 0, y: 0 }, data: { title: 'Three' } },
-      ],
-      edges: [],
-      sources: [],
-      permission: 'VIEWER',
-      canEdit: false,
-      accessCount: 1,
-    });
+describe('GraphStore Layout Stability', () => {
+  const initialGraph: Graph = {
+    id: 'test-graph',
+    title: 'Stability Test Graph',
+    description: null,
+    userId: 'owner',
+    isPublic: true,
+    isPrepared: true,
+    nodes: [
+      {
+        id: 'node-1',
+        position: { x: 100, y: 150 },
+        data: { title: 'Node 1', description: 'Description 1' },
+      },
+      {
+        id: 'node-2',
+        position: { x: 450, y: 150 },
+        data: { title: 'Node 2', description: 'Description 2' },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1-2',
+        source: 'node-1',
+        target: 'node-2',
+      },
+    ],
+    isOwned: true,
+    permission: 'OWNER',
+    canEdit: true,
+    accessCount: 1,
+    sources: [],
+  };
 
-    expect(useGraphStore.getState().selectedNodeIds).toEqual(['one', 'two']);
+  beforeEach(() => {
+    useGraphStore.getState().setGraph(initialGraph);
   });
 
-  it('clears source focus when visual results are dismissed', () => {
-    useGraphStore.getState().setActiveSourceId('source-1');
-    useGraphStore.getState().setResults({
-      queryId: 'query-1',
-      results: [],
-      matchedNodeIds: [],
-      remaining: 2,
-      extendedSearch: false,
-      extendedContextCount: 0,
-    });
-    useGraphStore.getState().setResults(undefined);
+  it('preserves exact node coordinates when expanding a node', () => {
+    const store = useGraphStore.getState();
+    expect(store.expandedNodeIds).toEqual([]);
 
-    expect(useGraphStore.getState().mode).toBe('IDLE');
-    expect(useGraphStore.getState().activeSourceId).toBeUndefined();
-    expect(useGraphStore.getState().activeMatch).toBeUndefined();
+    // Expand node-1
+    store.toggleExpanded('node-1');
+
+    const updated = useGraphStore.getState();
+    expect(updated.expandedNodeIds).toEqual(['node-1']);
+
+    // Nodes must remain at their exact spatial coordinates (no Dagre shift)
+    expect(updated.graph?.nodes[0]?.position).toEqual({ x: 100, y: 150 });
+    expect(updated.graph?.nodes[1]?.position).toEqual({ x: 450, y: 150 });
+  });
+
+  it('preserves exact node coordinates when collapsing a node', () => {
+    const store = useGraphStore.getState();
+    store.toggleExpanded('node-1');
+    expect(useGraphStore.getState().expandedNodeIds).toEqual(['node-1']);
+
+    // Collapse node-1
+    useGraphStore.getState().toggleExpanded('node-1');
+
+    const updated = useGraphStore.getState();
+    expect(updated.expandedNodeIds).toEqual([]);
+    expect(updated.graph?.nodes[0]?.position).toEqual({ x: 100, y: 150 });
+    expect(updated.graph?.nodes[1]?.position).toEqual({ x: 450, y: 150 });
+  });
+
+  it('preserves user custom dragged positions across multiple expansions and collapses', () => {
+    // Simulate user moving node-2 to custom position
+    useGraphStore.getState().applyNodes([
+      {
+        type: 'position',
+        id: 'node-2',
+        position: { x: 600, y: 320 },
+      },
+    ]);
+
+    expect(useGraphStore.getState().graph?.nodes[1]?.position).toEqual({
+      x: 600,
+      y: 320,
+    });
+
+    // Expand node-1
+    useGraphStore.getState().toggleExpanded('node-1');
+    expect(useGraphStore.getState().graph?.nodes[1]?.position).toEqual({
+      x: 600,
+      y: 320,
+    });
+
+    // Collapse all nodes
+    useGraphStore.getState().collapseAllNodes();
+    expect(useGraphStore.getState().graph?.nodes[1]?.position).toEqual({
+      x: 600,
+      y: 320,
+    });
+  });
+
+  it('does not scramble node layout when clearing results', () => {
+    const store = useGraphStore.getState();
+    store.applyNodes([
+      {
+        type: 'position',
+        id: 'node-1',
+        position: { x: 120, y: 220 },
+      },
+    ]);
+
+    store.clearResults();
+
+    const updated = useGraphStore.getState();
+    expect(updated.graph?.nodes[0]?.position).toEqual({ x: 120, y: 220 });
+    expect(updated.expandedNodeIds).toEqual([]);
   });
 });

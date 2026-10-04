@@ -325,4 +325,196 @@ describe('HistoryDrawer', () => {
     expect(Number.parseInt(drawer.style.width, 10)).toBeGreaterThan(350);
     expect(Number.parseInt(drawer.style.height, 10)).toBeGreaterThan(260);
   });
+
+  it('renders Crawl badge for crawl queries and Search badge for search queries', () => {
+    const crawlEntry: QueryHistory = {
+      id: 'query-crawl-1',
+      graphId: 'graph-1',
+      queryText: 'crawl traversal across systems',
+      selectedNodeIds: ['node-1'],
+      results: {
+        queryId: 'query-crawl-1',
+        queryType: 'crawl',
+        queryText: 'crawl traversal across systems',
+        startingNodeIds: ['node-1'],
+        crawlDepth: 'default',
+        direction: 'forward',
+        sensitivity: 'medium',
+        nodes: [],
+        edges: [],
+        maxLevelReached: 0,
+        totalMatches: 0,
+        matchedNodeIds: ['node-1'],
+        remaining: 0,
+      },
+      title: null,
+      isPinned: false,
+      createdAt: new Date('2026-09-03T12:00:00Z').toISOString(),
+    };
+
+    render(
+      <HistoryDrawer
+        entries={[crawlEntry, mockEntries[0]!]}
+        onRestore={vi.fn()}
+        onEdit={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Crawl')).toBeInTheDocument();
+    expect(screen.getByText('Search')).toBeInTheDocument();
+  });
+
+  it('renders re-run button and calls onRerun', () => {
+    const onRerun = vi.fn();
+    const entry: QueryHistory = {
+      ...mockEntries[0]!,
+    };
+
+    render(
+      <HistoryDrawer
+        entries={[entry]}
+        onRestore={vi.fn()}
+        onEdit={vi.fn()}
+        onTogglePin={vi.fn()}
+        onRerun={onRerun}
+      />,
+    );
+
+    const rerunBtn = screen.getByRole('button', { name: /re-run query/i });
+    expect(rerunBtn).toBeInTheDocument();
+    fireEvent.click(rerunBtn);
+
+    expect(onRerun).toHaveBeenCalledWith(entry);
+  });
+
+  it('filters history by quick filter chips (All, Pinned, Searches, Crawls)', () => {
+    const crawlEntry: QueryHistory = {
+      id: 'query-crawl-1',
+      graphId: 'graph-1',
+      queryText: 'crawl traversal across systems',
+      selectedNodeIds: ['node-1'],
+      results: {
+        queryId: 'query-crawl-1',
+        queryType: 'crawl',
+        queryText: 'crawl traversal across systems',
+        startingNodeIds: ['node-1'],
+        crawlDepth: 'default',
+        direction: 'forward',
+        sensitivity: 'medium',
+        nodes: [],
+        edges: [],
+        maxLevelReached: 0,
+        totalMatches: 0,
+        matchedNodeIds: ['node-1'],
+        remaining: 0,
+      },
+      title: null,
+      isPinned: false,
+      createdAt: new Date('2026-09-03T12:00:00Z').toISOString(),
+    };
+
+    render(
+      <HistoryDrawer
+        entries={[mockEntries[0]!, mockEntries[1]!, crawlEntry]}
+        onRestore={vi.fn()}
+        onEdit={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    // Initial state (All): all 3 visible
+    expect(screen.getByText('how does replication work')).toBeInTheDocument();
+    expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
+    expect(
+      screen.getByText('crawl traversal across systems'),
+    ).toBeInTheDocument();
+
+    // Filter by Pinned
+    fireEvent.click(screen.getByRole('tab', { name: /pinned/i }));
+    expect(
+      screen.queryByText('how does replication work'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
+    expect(
+      screen.queryByText('crawl traversal across systems'),
+    ).not.toBeInTheDocument();
+
+    // Filter by Crawls
+    fireEvent.click(screen.getByRole('tab', { name: /crawls/i }));
+    expect(
+      screen.queryByText('how does replication work'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('ACID Properties Overview'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText('crawl traversal across systems'),
+    ).toBeInTheDocument();
+
+    // Filter by Searches
+    fireEvent.click(screen.getByRole('tab', { name: /searches/i }));
+    expect(screen.getByText('how does replication work')).toBeInTheDocument();
+    expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
+    expect(
+      screen.queryByText('crawl traversal across systems'),
+    ).not.toBeInTheDocument();
+
+    // Filter back to All
+    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    expect(screen.getByText('how does replication work')).toBeInTheDocument();
+    expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
+    expect(
+      screen.getByText('crawl traversal across systems'),
+    ).toBeInTheDocument();
+  });
+
+  it('filters history via in-drawer search input and shows empty filter message', () => {
+    render(
+      <HistoryDrawer
+        entries={[
+          mockEntries[0]!,
+          mockEntries[1]!,
+          {
+            id: 'query-3',
+            graphId: 'graph-1',
+            queryText: 'btree index performance',
+            selectedNodeIds: ['node-3'],
+            results: null,
+            title: null,
+            isPinned: false,
+            createdAt: new Date('2026-09-04T12:00:00Z').toISOString(),
+          },
+        ]}
+        onRestore={vi.fn()}
+        onEdit={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    const searchInput = screen.getByLabelText('Filter history');
+    expect(searchInput).toBeInTheDocument();
+
+    // Filter for replication
+    fireEvent.change(searchInput, { target: { value: 'replication' } });
+    expect(screen.getByText('how does replication work')).toBeInTheDocument();
+    expect(
+      screen.queryByText('ACID Properties Overview'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('btree index performance'),
+    ).not.toBeInTheDocument();
+
+    // Filter for non-matching
+    fireEvent.change(searchInput, { target: { value: 'nonexistent xyz' } });
+    expect(
+      screen.getByText('No queries match this filter.'),
+    ).toBeInTheDocument();
+
+    // Clear filter
+    fireEvent.click(screen.getByLabelText('Clear filter'));
+    expect(screen.getByText('how does replication work')).toBeInTheDocument();
+    expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
+    expect(screen.getByText('btree index performance')).toBeInTheDocument();
+  });
 });

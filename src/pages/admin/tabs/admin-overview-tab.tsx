@@ -3,19 +3,26 @@ import {
   Archive,
   ArrowUpRight,
   Clock,
-  Coins,
-  CreditCard,
+  DollarSign,
+  Eye,
   HardDrive,
   Layers,
   Network,
   RefreshCw,
   Server,
+  ShieldCheck,
+  Trophy,
   Users,
+  Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { api } from '../../../lib/api';
-import type { AdminOverviewStats } from '../../../types/api';
+import type {
+  AdAnalyticsSummary,
+  AdminOverviewStats,
+  TelemetryDateRange,
+} from '../../../types/api';
 
 type AdminOverviewTabProps = {
   onNavigateTab: (tab: string) => void;
@@ -23,19 +30,49 @@ type AdminOverviewTabProps = {
 
 export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
   const [stats, setStats] = useState<AdminOverviewStats | null>(null);
+  const [adAnalytics, setAdAnalytics] = useState<AdAnalyticsSummary | null>(
+    null,
+  );
+  const [adRange, setAdRange] = useState<TelemetryDateRange>('30d');
+  const [adLoading, setAdLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadStats = async () => {
+  const loadStats = async (range: TelemetryDateRange = adRange) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.admin.overview();
+      const [data, adsData] = await Promise.all([
+        api.admin.overview(),
+        api.ads?.getAnalytics
+          ? api.ads.getAnalytics(range).catch(() => null)
+          : Promise.resolve(null),
+      ]);
       setStats(data);
+      if (adsData) {
+        setAdAnalytics(adsData);
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load administrative statistics.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAdRangeChange = async (range: TelemetryDateRange) => {
+    setAdRange(range);
+    setAdLoading(true);
+    try {
+      const adsData = api.ads?.getAnalytics
+        ? await api.ads.getAnalytics(range)
+        : null;
+      if (adsData) {
+        setAdAnalytics(adsData);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setAdLoading(false);
     }
   };
 
@@ -51,6 +88,19 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
     return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
   };
 
+  const formatDuration = (seconds: number): string => {
+    if (!seconds || seconds <= 0) return '0s';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const mins = Math.floor(seconds / 60);
+    const remainingSecs = Math.round(seconds % 60);
+    if (mins < 60) {
+      return remainingSecs > 0 ? `${mins}m ${remainingSecs}s` : `${mins}m`;
+    }
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hours}h ${remMins}m`;
+  };
+
   if (loading && !stats) {
     return (
       <div className="admin-tab-loading">
@@ -64,7 +114,11 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
     return (
       <div className="admin-tab-error">
         <p>{error}</p>
-        <button type="button" className="admin-btn primary" onClick={loadStats}>
+        <button
+          type="button"
+          className="admin-btn primary"
+          onClick={() => void loadStats()}
+        >
           Retry
         </button>
       </div>
@@ -84,14 +138,14 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
         <div>
           <h2>System Analytics & Overview</h2>
           <p className="admin-tab-subtitle">
-            Real-time telemetry, revenue metrics, query velocity, and storage
-            footprint.
+            Real-time telemetry, similarity queue status, query velocity, and
+            storage footprint.
           </p>
         </div>
         <button
           type="button"
           className="admin-btn secondary refresh-btn"
-          onClick={loadStats}
+          onClick={() => void loadStats()}
           title="Refresh statistics"
         >
           <RefreshCw size={14} className={loading ? 'spinning' : ''} />
@@ -119,35 +173,56 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
           <div className="kpi-metric">{stats.users.total}</div>
           <div className="kpi-label">Registered Accounts</div>
           <div className="kpi-subtext">
-            <span>{stats.users.free} Free</span>
+            <span>
+              {stats.users.registered ?? stats.users.free ?? 0} Registered
+            </span>
             <span className="dot">•</span>
-            <span>{stats.users.pro} Pro</span>
-            <span className="dot">•</span>
-            <span>{stats.users.anonymous} Anon</span>
+            <span>{stats.users.anonymous} Anonymous</span>
           </div>
         </div>
 
-        {/* Monthly Revenue (MRR) */}
+        {/* Similarity Search Quota & Queue */}
         <div
           className="admin-kpi-card"
-          onClick={() => onNavigateTab('subscriptions')}
+          onClick={() => onNavigateTab('settings')}
           role="button"
           tabIndex={0}
         >
           <div className="kpi-top">
-            <div className="kpi-icon revenue-icon">
-              <Coins size={20} />
+            <div className="kpi-icon requests-icon">
+              <Zap size={20} />
             </div>
-            <span className="kpi-tag pro-tag">
-              ${stats.revenue.proPriceUsd}/mo Tier
+            <span
+              className={`kpi-tag ${
+                stats.similarityQueue?.occupation === 'high'
+                  ? 'text-danger'
+                  : stats.similarityQueue?.occupation === 'mid'
+                    ? 'text-amber'
+                    : 'positive'
+              }`}
+            >
+              Queue:{' '}
+              {String(stats.similarityQueue?.occupation ?? 'low').toUpperCase()}
             </span>
           </div>
           <div className="kpi-metric">
-            ${stats.revenue.monthlyRecurringRevenue}
+            {stats.similarityQueue?.registeredThroughputPerMinute ?? 120}{' '}
+            <span className="kpi-unit">
+              / {stats.similarityQueue?.anonymousThroughputPerMinute ?? 30}{' '}
+              ops/min
+            </span>
           </div>
-          <div className="kpi-label">Monthly Recurring Revenue (MRR)</div>
+          <div className="kpi-label">Similarity Search Quota</div>
           <div className="kpi-subtext">
-            <span>{stats.revenue.activeSubscriptions} Active Pro Seats</span>
+            <span>
+              Registered:{' '}
+              {stats.similarityQueue?.registeredThroughputPerMinute ?? 120}/m
+            </span>
+            <span className="dot">•</span>
+            <span>
+              Anon: {stats.similarityQueue?.anonymousThroughputPerMinute ?? 30}
+              /m
+            </span>
           </div>
         </div>
 
@@ -230,6 +305,29 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
             </span>
           </div>
         </div>
+
+        {/* Ad Revenue (Sole Monetization Stream) */}
+        <div className="admin-kpi-card ad-revenue-card">
+          <div className="kpi-top">
+            <div className="kpi-icon revenue-icon">
+              <DollarSign size={20} />
+            </div>
+            <span className="kpi-tag positive">
+              ${adAnalytics?.estimatedRevenueUsd?.toFixed(2) ?? '0.00'} Est.
+            </span>
+          </div>
+          <div className="kpi-metric">
+            ${adAnalytics?.estimatedRevenueUsd?.toFixed(2) ?? '0.00'}
+          </div>
+          <div className="kpi-label">Ad Revenue ({adRange})</div>
+          <div className="kpi-subtext">
+            <span>
+              {adAnalytics?.totalImpressions?.toLocaleString() ?? 0} Impressions
+            </span>
+            <span className="dot">•</span>
+            <span>eCPM ${adAnalytics?.effectiveEcpm ?? 1.5}</span>
+          </div>
+        </div>
       </div>
 
       {/* 24-Hour Velocity Distribution Chart */}
@@ -279,6 +377,190 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
         </div>
       </div>
 
+      {/* Ad Revenue Intelligence & Top Knowledge Graphs */}
+      <div className="admin-card ad-revenue-dashboard-card">
+        <div className="admin-card-header">
+          <div className="admin-card-title-group">
+            <div className="kpi-icon revenue-icon">
+              <DollarSign size={20} />
+            </div>
+            <div>
+              <h3>Ad Revenue Intelligence & Top Knowledge Graphs</h3>
+              <p className="admin-card-subtitle">
+                Real-time telemetry, GDPR consent breakdown, and top earning
+                knowledge graphs (Sole Revenue Stream).
+              </p>
+            </div>
+          </div>
+          <div className="admin-card-header-actions">
+            <div
+              className="ad-range-pill-group"
+              role="group"
+              aria-label="Date range"
+            >
+              {(['7d', '30d', '90d', 'all'] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`ad-range-pill ${adRange === r ? 'active' : ''}`}
+                  onClick={() => void handleAdRangeChange(r)}
+                  disabled={adLoading}
+                >
+                  {r.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Ad Metrics Grid */}
+        <div className="ad-metrics-row">
+          <div className="ad-metric-box">
+            <div className="ad-metric-label">
+              <DollarSign size={13} className="text-amber" />
+              <span>Estimated Ad Revenue</span>
+            </div>
+            <div className="ad-metric-value text-mint">
+              ${adAnalytics?.estimatedRevenueUsd?.toFixed(2) ?? '0.00'}
+            </div>
+            <div className="ad-metric-subtext">
+              eCPM ${adAnalytics?.effectiveEcpm ?? 1.5} per 1k impressions
+            </div>
+          </div>
+
+          <div className="ad-metric-box">
+            <div className="ad-metric-label">
+              <Eye size={13} className="text-mint" />
+              <span>Active Viewability</span>
+            </div>
+            <div className="ad-metric-value">
+              {adAnalytics?.averageViewabilitySeconds ?? 0}s
+            </div>
+            <div className="ad-metric-subtext">
+              Total{' '}
+              {formatDuration(adAnalytics?.totalActiveViewableSeconds ?? 0)}{' '}
+              in-view
+            </div>
+          </div>
+
+          <div className="ad-metric-box">
+            <div className="ad-metric-label">
+              <Activity size={13} className="text-extended" />
+              <span>Total Ad Impressions</span>
+            </div>
+            <div className="ad-metric-value">
+              {adAnalytics?.totalImpressions ?? 0}
+            </div>
+            <div className="ad-metric-subtext">
+              {adAnalytics?.totalRefreshes ?? 0} compliant 30s refreshes
+            </div>
+          </div>
+
+          <div className="ad-metric-box">
+            <div className="ad-metric-label">
+              <ShieldCheck size={13} className="text-emerald-500" />
+              <span>GDPR Consent Status</span>
+            </div>
+            <div className="ad-metric-value">
+              {adAnalytics?.consentBreakdown?.personalized ?? 0}
+            </div>
+            <div className="ad-metric-subtext">
+              {adAnalytics?.consentBreakdown?.contextual ?? 0} contextual •{' '}
+              {adAnalytics?.consentBreakdown?.declined ?? 0} denied
+            </div>
+          </div>
+
+          <div className="ad-metric-box">
+            <div className="ad-metric-label">
+              <Zap size={13} className="text-amber-500" />
+              <span>Occlusion Culling Savings</span>
+            </div>
+            <div className="ad-metric-value">
+              {adAnalytics?.gpuSavingsPercentage ?? 0}%
+            </div>
+            <div className="ad-metric-subtext">
+              {adAnalytics?.totalCulled ?? 0} offscreen ads culled
+            </div>
+          </div>
+        </div>
+
+        {/* Top Graphs Leaderboard Table */}
+        <div className="top-graphs-section">
+          <div className="top-graphs-title">
+            <h4>
+              <Trophy size={16} className="text-amber" />
+              <span>Top Knowledge Graphs by Ad Revenue</span>
+            </h4>
+            <span className="card-legend">
+              Ranked by impression volume & active canvas viewability
+            </span>
+          </div>
+
+          {adAnalytics?.topGraphs && adAnalytics.topGraphs.length > 0 ? (
+            <div className="admin-table-wrapper">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '48px' }}>#</th>
+                    <th>Knowledge Graph</th>
+                    <th>Visibility</th>
+                    <th className="text-right">Impressions</th>
+                    <th className="text-right">Viewable Time</th>
+                    <th className="text-right">Est. Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adAnalytics.topGraphs.map((g, idx) => (
+                    <tr key={g.graphId}>
+                      <td>
+                        <span className={`rank-badge rank-${idx + 1}`}>
+                          {idx + 1}
+                        </span>
+                      </td>
+                      <td>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <Network size={15} className="text-muted" />
+                          <strong>{g.graphName}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        <span
+                          className={`kpi-tag sm ${g.isPublic ? 'positive' : ''}`}
+                        >
+                          {g.isPublic ? 'Public' : 'Private'}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        {g.impressions.toLocaleString()}
+                      </td>
+                      <td className="text-right">
+                        {formatDuration(g.activeViewableSeconds)}
+                      </td>
+                      <td className="text-right revenue-text-highlight">
+                        ${g.estimatedRevenueUsd.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-chart-notice" style={{ padding: '24px 0' }}>
+              <span>
+                No ad impressions attributed to knowledge graphs yet in this
+                date range. Impressions will appear as users browse canvases.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Quick Shortcuts & Recent Events */}
       <div className="admin-two-col-grid">
         {/* Quick Management Shortcuts */}
@@ -300,7 +582,7 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
               </div>
               <div className="shortcut-info">
                 <strong>Manage Accounts & Tiers</strong>
-                <span>Grant Pro status, extend subscriptions, view quotas</span>
+                <span>Adjust storage limits, view quotas, audit accounts</span>
               </div>
               <ArrowUpRight size={16} className="shortcut-arrow" />
             </button>
@@ -358,46 +640,70 @@ export function AdminOverviewTab({ onNavigateTab }: AdminOverviewTabProps) {
           </div>
         </div>
 
-        {/* Recent Billing Events */}
+        {/* Similarity Search Queue & Storage Summary */}
         <div className="admin-card">
           <div className="card-header-row">
             <div className="header-title-group">
-              <CreditCard size={16} />
-              <h3>Recent Billing & Subscription Activity</h3>
+              <HardDrive size={16} />
+              <h3>Similarity Queue & Storage Quota</h3>
             </div>
             <button
               type="button"
               className="admin-link-btn"
-              onClick={() => onNavigateTab('subscriptions')}
+              onClick={() => onNavigateTab('settings')}
             >
-              View all
+              Configure
             </button>
           </div>
           <div className="events-stream-list">
-            {stats.revenue.recentEvents.length > 0 ? (
-              stats.revenue.recentEvents.map((ev) => (
-                <div key={ev.id} className="billing-event-row">
-                  <div className="event-badge-cell">
-                    <span
-                      className={`event-tag ${ev.eventType.includes('pro') ? 'pro' : ''}`}
-                    >
-                      {ev.eventType}
-                    </span>
-                  </div>
-                  <div className="event-meta-cell">
-                    <span className="event-user">
-                      User: {ev.userId.slice(0, 8)}...
-                    </span>
-                    <span className="event-provider">{ev.provider}</span>
-                  </div>
-                  <span className="event-time">
-                    {new Date(ev.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="empty-subtext">No billing events recorded yet.</p>
-            )}
+            <div className="billing-event-row">
+              <div className="event-meta-cell">
+                <strong>Default User Storage Limit</strong>
+                <span className="event-provider">
+                  Per-user source document storage
+                </span>
+              </div>
+              <span className="kpi-tag positive">
+                {stats.storageQuota.defaultStorageLimitMb} MB
+              </span>
+            </div>
+            <div className="billing-event-row">
+              <div className="event-meta-cell">
+                <strong>Total Sources Tracked</strong>
+                <span className="event-provider">
+                  Indexed in object storage
+                </span>
+              </div>
+              <span className="kpi-tag">
+                {stats.storageQuota.totalSources} files
+              </span>
+            </div>
+            <div className="billing-event-row">
+              <div className="event-meta-cell">
+                <strong>Total Storage Consumed</strong>
+                <span className="event-provider">Raw source document size</span>
+              </div>
+              <span className="kpi-tag">
+                {formatBytes(stats.storageQuota.totalStorageBytes)}
+              </span>
+            </div>
+            <div className="billing-event-row">
+              <div className="event-meta-cell">
+                <strong>Similarity Quota Queue</strong>
+                <span className="event-provider">Global postponing status</span>
+              </div>
+              <span
+                className={`kpi-tag ${
+                  stats.similarityQueue.occupation === 'high'
+                    ? 'text-danger'
+                    : stats.similarityQueue.occupation === 'mid'
+                      ? 'text-amber'
+                      : 'positive'
+                }`}
+              >
+                {String(stats.similarityQueue.occupation).toUpperCase()}
+              </span>
+            </div>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Archive, LogOut, MonitorX, Trash2 } from 'lucide-react';
+import { Archive, LogOut, MonitorX, ShieldCheck, Trash2 } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -13,6 +13,7 @@ type ProfileDialogProps = {
   onIdentityChange: (identity: Identity) => void;
   onLogout: () => Promise<void>;
   onOpenRetention?: () => void;
+  onOpenPrivacy?: () => void;
 };
 
 export function ProfileDialog({
@@ -22,6 +23,7 @@ export function ProfileDialog({
   onIdentityChange,
   onLogout,
   onOpenRetention,
+  onOpenPrivacy,
 }: ProfileDialogProps) {
   const [username, setUsername] = useState(identity?.username ?? '');
   const [language, setLanguage] = useState('en');
@@ -159,6 +161,20 @@ export function ProfileDialog({
           >
             <Archive size={15} />
             Retention & Archives
+          </button>
+        ) : null}
+        {onOpenPrivacy ? (
+          <button
+            type="button"
+            className="command-button secondary"
+            onClick={() => {
+              onOpenChange(false);
+              onOpenPrivacy();
+            }}
+            data-testid="profile-open-privacy"
+          >
+            <ShieldCheck size={15} />
+            Privacy & Cookies
           </button>
         ) : null}
         <button

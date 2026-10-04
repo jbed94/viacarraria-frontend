@@ -52,7 +52,7 @@ describe('SubjectNode Canvas Component', () => {
     email: 'user@example.com',
     username: 'testuser',
     isGuest: false,
-    tier: 'FREE',
+    tier: 'REGISTERED',
   };
 
   const anonIdentity: Identity = {
@@ -286,20 +286,18 @@ describe('SubjectNode Canvas Component', () => {
                 'QuickSort divides array into sub-arrays through pivot selection and recurses efficiently.',
               context: 'QuickSort algorithm overview',
               score: 0.94,
-              extendedContext: [
-                {
-                  graphId: 'graph-1',
-                  nodeId: 'node-1',
-                  sourceId: 'src-2',
-                  sourceName: 'Summary.md',
-                  startChar: 0,
-                  endChar: 80,
-                  pageNum: 1,
-                  content: 'Pivot choice affects worst case time complexity.',
-                  context: 'Complexity analysis',
-                  score: 0.85,
-                },
-              ],
+            },
+            {
+              graphId: 'graph-1',
+              nodeId: 'node-1',
+              sourceId: 'src-2',
+              sourceName: 'Summary.md',
+              startChar: 0,
+              endChar: 80,
+              pageNum: 1,
+              content: 'Pivot choice affects worst case time complexity.',
+              context: 'Complexity analysis',
+              score: 0.85,
             },
           ],
         },
@@ -327,7 +325,7 @@ describe('SubjectNode Canvas Component', () => {
       // Match count badge
       expect(screen.getByText('+3')).toBeInTheDocument();
 
-      // Expanded match section displays snippet and extended context snippet
+      // Expanded match section displays direct match snippets
       expect(
         screen.getByText(/QuickSort divides array into sub-arrays/),
       ).toBeInTheDocument();
@@ -345,6 +343,26 @@ describe('SubjectNode Canvas Component', () => {
         <SubjectNode
           id="node-2"
           data={{ title: 'Search Trees', category: 'Data Structures' }}
+          {...({} as any)}
+        />,
+      );
+
+      const article = container.querySelector('article.subject-node');
+      expect(article).toHaveClass('is-muted');
+      expect(article).not.toHaveClass('is-matched');
+      expect(screen.queryByText(/^\+\d+/)).not.toBeInTheDocument();
+    });
+
+    it('mutes matched node when minRelevanceScore exceeds its top rerank/relevance score', () => {
+      useGraphStore.setState({
+        results: searchResults,
+        minRelevanceScore: 0.95, // 95% threshold > 94% top score
+      });
+
+      const { container } = render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Sorting Algorithms', category: 'Algorithms' }}
           {...({} as any)}
         />,
       );
@@ -445,11 +463,11 @@ describe('SubjectNode Canvas Component', () => {
       expect(useGraphStore.getState().selectedNodeIds).not.toContain('node-1');
     });
 
-    it('does not limit selections for registered users', () => {
+    it('does not limit selections for registered users even with many nodes', () => {
       useGraphStore.setState({
         mode: 'CONTEXT_SELECTION',
-        selectedNodeIds: ['node-2', 'node-3', 'node-4'], // > 2 nodes selected
-        identity: defaultIdentity, // FREE tier
+        selectedNodeIds: Array.from({ length: 15 }, (_, i) => `node-${i + 2}`),
+        identity: defaultIdentity, // REGISTERED tier
       });
 
       render(
@@ -462,6 +480,44 @@ describe('SubjectNode Canvas Component', () => {
 
       const checkbox = screen.getByRole('checkbox', { name: 'Include' });
       expect(checkbox).not.toBeDisabled();
+    });
+
+    it('shows Include selector when node is selected even if mode is IDLE', () => {
+      useGraphStore.setState({
+        mode: 'IDLE',
+        queryType: 'simple',
+        selectedNodeIds: ['node-1'],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Sorting Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      expect(
+        screen.getByRole('checkbox', { name: 'Include' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Include' })).toBeChecked();
+    });
+
+    it('applies is-selected class to subject-node when node is in selectedNodeIds', () => {
+      useGraphStore.setState({
+        selectedNodeIds: ['node-1'],
+      });
+
+      const { container } = render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Sorting Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      const nodeArticle = container.querySelector('.subject-node');
+      expect(nodeArticle).toHaveClass('is-selected');
     });
   });
 
@@ -560,6 +616,68 @@ describe('SubjectNode Canvas Component', () => {
 
       window.removeEventListener('via-delete-source', deleteListener);
       window.removeEventListener('via-upload-source', uploadListener);
+    });
+
+    it('allows PDF upload for registered users without dispatching pricing event', () => {
+      const uploadListener = vi.fn();
+      window.addEventListener('via-upload-source', uploadListener);
+
+      useGraphStore.setState({
+        graph: baseGraph,
+        isEditing: true,
+        expandedNodeIds: ['node-1'],
+        identity: defaultIdentity, // REGISTERED tier
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Sorting Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      const fileInput = document.querySelector(
+        'input[type="file"]',
+      ) as HTMLInputElement;
+      expect(fileInput).toBeInTheDocument();
+
+      const pdfFile = new File(['%PDF-1.4...'], 'paper.pdf', {
+        type: 'application/pdf',
+      });
+      fireEvent.change(fileInput, { target: { files: [pdfFile] } });
+
+      expect(uploadListener).toHaveBeenCalled();
+
+      window.removeEventListener('via-upload-source', uploadListener);
+    });
+
+    it('allows registered users to upload sources even when node already has 3 sources', () => {
+      const threeSources: Source[] = [
+        { ...sampleSources[0]!, id: 's1' },
+        { ...sampleSources[1]!, id: 's2' },
+        { ...sampleSources[1]!, id: 's3', name: 'Notes.md' },
+      ];
+
+      useGraphStore.setState({
+        graph: {
+          ...baseGraph,
+          sources: threeSources,
+        },
+        isEditing: true,
+        expandedNodeIds: ['node-1'],
+        identity: defaultIdentity, // REGISTERED tier
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Sorting Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      expect(document.querySelector('input[type="file"]')).toBeInTheDocument();
     });
 
     it('renders real-time progress badge when source is processing and updates upon completion', () => {
@@ -713,6 +831,142 @@ describe('SubjectNode Canvas Component', () => {
       window.removeEventListener('via-pause-upload', pauseListener);
       window.removeEventListener('via-resume-upload', resumeListener);
       window.removeEventListener('via-cancel-upload', cancelListener);
+    });
+  });
+
+  describe('Crawl Mode Behavior', () => {
+    it('selects start node exclusively through clicking the Start Node checkbox', () => {
+      useGraphStore.setState({
+        queryType: 'crawl',
+        mode: 'CRAWL_SELECTION',
+        crawlStartingNodeIds: [],
+        expandedNodeIds: [],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{
+            title: 'Sorting Algorithms',
+            description: 'Study of algorithms.',
+          }}
+          {...({} as any)}
+        />,
+      );
+
+      const checkbox = screen.getByRole('checkbox', { name: /Start Node/i });
+      expect(checkbox).not.toBeChecked();
+
+      // Click the checkbox
+      fireEvent.click(checkbox);
+      expect(useGraphStore.getState().crawlStartingNodeIds).toContain('node-1');
+      // Node should NOT be expanded just by checking the checkbox
+      expect(useGraphStore.getState().expandedNodeIds).not.toContain('node-1');
+    });
+
+    it('normally expands topic details and sources when clicking node body in crawl mode', () => {
+      useGraphStore.setState({
+        queryType: 'crawl',
+        mode: 'CRAWL_SELECTION',
+        crawlStartingNodeIds: [],
+        expandedNodeIds: [],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{
+            title: 'Sorting Algorithms',
+            description: 'Study of algorithms.',
+          }}
+          {...({} as any)}
+        />,
+      );
+
+      // Node details should initially not be visible
+      expect(
+        screen.queryByText('Study of algorithms.'),
+      ).not.toBeInTheDocument();
+
+      // Click node body outside the checkbox
+      fireEvent.click(
+        screen.getByRole('button', { name: /Sorting Algorithms/ }),
+      );
+
+      // Node should be expanded!
+      expect(useGraphStore.getState().expandedNodeIds).toContain('node-1');
+      // crawlStartingNodeIds should NOT be altered by clicking the node body
+      expect(useGraphStore.getState().crawlStartingNodeIds).not.toContain(
+        'node-1',
+      );
+    });
+
+    it('applies is-focus-highlight when node is specifically focused and is-solo-dimmed when not in focus', () => {
+      useGraphStore.setState({
+        focusedNodeId: 'node-1',
+        isFocusMode: true,
+      });
+
+      const { rerender } = render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Target Node' }}
+          {...({} as any)}
+        />,
+      );
+
+      const targetArticle = screen.getByRole('article');
+      expect(targetArticle).toHaveClass('is-focus-highlight');
+      expect(targetArticle).not.toHaveClass('is-solo-dimmed');
+
+      // Rerender as an unrelated non-focused node
+      rerender(
+        <SubjectNode
+          id="node-2"
+          data={{ title: 'Background Node' }}
+          {...({} as any)}
+        />,
+      );
+
+      const backgroundArticle = screen.getByRole('article');
+      expect(backgroundArticle).toHaveClass('is-solo-dimmed');
+      expect(backgroundArticle).not.toHaveClass('is-focus-highlight');
+    });
+
+    it('applies is-previewed class and renders node-preview-badge when node is in previewNodeIds', () => {
+      useGraphStore.setState({
+        previewNodeIds: ['node-1'],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Target Node', category: 'Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      const article = screen.getByRole('article');
+      expect(article).toHaveClass('is-previewed');
+      expect(screen.getByText('Suggested Concept')).toBeInTheDocument();
+    });
+
+    it('does not apply is-previewed or render badge when node is not in previewNodeIds', () => {
+      useGraphStore.setState({
+        previewNodeIds: ['node-other'],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Target Node', category: 'Algorithms' }}
+          {...({} as any)}
+        />,
+      );
+
+      const article = screen.getByRole('article');
+      expect(article).not.toHaveClass('is-previewed');
+      expect(screen.queryByText('Suggested Concept')).not.toBeInTheDocument();
     });
   });
 });

@@ -1,8 +1,16 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../lib/api';
+import { useGraphStore } from '../../store/graph-store';
+import type { SearchChunk } from '../../types/api';
 import {
   getHighlightRanges,
   isPdfSource,
@@ -50,6 +58,23 @@ describe('getHighlightRanges', () => {
         { ...match(0, 8), kind: 'EXTENDED' },
       ]),
     ).toEqual([{ start: 0, end: 8, focused: false, kind: 'EXTENDED' }]);
+  });
+
+  it('falls back to finding text content when character offsets are 0 or undefined', () => {
+    const content =
+      'Introductory text. Neural search matches this section. Final text.';
+    const zeroOffsetMatch = {
+      ...match(0, 0),
+      content: 'Neural search matches this section',
+    };
+    const ranges = getHighlightRanges(
+      content,
+      [zeroOffsetMatch],
+      zeroOffsetMatch,
+    );
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]?.start).toBe(content.indexOf('Neural search'));
+    expect(ranges[0]?.focused).toBe(true);
   });
 });
 
@@ -155,65 +180,91 @@ describe('isPdfSource', () => {
   });
 });
 
-describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
+describe('SourceViewerDialog - Notes & Search Highlights', () => {
   afterEach(() => {
     cleanup();
   });
 
-  it('renders target banner with page, coordinates, and bounding box overlay for PDF search hits', async () => {
-    vi.spyOn(api, 'source').mockResolvedValue({
-      id: 'src-pdf-1',
+  it('switches between Preview, Edit Note, and Raw tabs with note editing and saving', async () => {
+    const updateSpy = vi.spyOn(api, 'updateSource').mockResolvedValue({
+      id: 'src-note-1',
       nodeId: 'node-1',
       graphId: 'graph-1',
-      name: 'Course-Syllabus.pdf',
-      fileType: 'application/pdf',
-      fileUrl: 'http://localhost:3000/api/sources/src-pdf-1/download',
-      sizeBytes: 2048,
+      name: 'Updated Note Title.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
       status: 'READY',
       jobId: null,
-      content: '# Syllabus content',
+      content: '# Updated note content from editor',
       createdAt: '2026-09-03',
       updatedAt: '2026-09-03',
     });
 
-    const focused = {
-      ...match(0, 20),
-      sourceId: 'src-pdf-1',
-      sourceName: 'Course-Syllabus.pdf',
-      pageNum: 2,
-      coordinates: [50, 120, 250, 16],
-      elementType: 'heading',
-    };
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-note-1',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Initial Note.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Initial Note Content\n\nSome introductory remarks.',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
 
     render(
       React.createElement(SourceViewerDialog, {
-        sourceId: 'src-pdf-1',
-        matches: [focused],
-        focusedMatch: focused,
+        sourceId: 'src-note-1',
+        matches: [],
         onOpenChange: vi.fn(),
       }),
     );
 
-    // Switch to PDF tab
-    const pdfTab = screen.getByRole('tab', { name: /PDF/i });
-    fireEvent.click(pdfTab);
+    // Initial view is Preview
+    expect(await screen.findByText('Initial Note Content')).toBeInTheDocument();
 
-    // Verify Target Banner elements
-    expect(await screen.findByText(/Page 2/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/heading/i).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/Target Box: 50, 120/i)).toBeInTheDocument();
+    // Switch to Edit Note tab
+    const editTab = screen.getByRole('tab', { name: /Edit Note/i });
+    fireEvent.click(editTab);
 
-    // Verify visual target bounding box overlay is rendered
-    const coordBox = document.body.querySelector('.pdf-coordinate-box');
-    expect(coordBox).toBeInTheDocument();
-    expect(coordBox?.getAttribute('title')).toContain('Page 2');
+    // Verify note editor title and textarea
+    const titleInput = screen.getByPlaceholderText(
+      /Note title/i,
+    ) as HTMLInputElement;
+    expect(titleInput.value).toBe('Initial Note.md');
+    const textarea = screen.getByPlaceholderText(
+      /Write your markdown note here/i,
+    ) as HTMLTextAreaElement;
+    expect(textarea.value).toContain('Initial Note Content');
 
-    // Verify toggle button turns guide overlay off/on
-    const toggleBtn = screen.getByRole('button', { name: /Target Guide: ON/i });
-    fireEvent.click(toggleBtn);
+    // Modify title and content
+    fireEvent.change(titleInput, {
+      target: { value: 'Updated Note Title.md' },
+    });
+    fireEvent.change(textarea, {
+      target: { value: '# Updated note content from editor' },
+    });
+
+    // Click Save Note
+    const saveBtn = screen.getByRole('button', { name: /Save Note/i });
+    fireEvent.click(saveBtn);
+
+    expect(updateSpy).toHaveBeenCalledWith('src-note-1', {
+      name: 'Updated Note Title.md',
+      content: '# Updated note content from editor',
+    });
+    expect(await screen.findByText(/Saved!/i)).toBeInTheDocument();
+
+    // Switch to Raw tab
+    const rawTab = screen.getByRole('tab', { name: /Raw/i });
+    fireEvent.click(rawTab);
     expect(
-      document.body.querySelector('.pdf-coordinate-box'),
-    ).not.toBeInTheDocument();
+      screen.getByText(/Updated note content from editor/i),
+    ).toBeInTheDocument();
   });
 
   it('copies citation to clipboard with markdown formatting and feedback', async () => {
@@ -232,7 +283,8 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
       sizeBytes: 2048,
       status: 'READY',
       jobId: null,
-      content: '# Syllabus content',
+      content:
+        '# Distributed Systems\n\nConsensus matrix and fault tolerance limits',
       createdAt: '2026-09-03',
       updatedAt: '2026-09-03',
     });
@@ -256,9 +308,6 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
       }),
     );
 
-    const pdfTab = screen.getByRole('tab', { name: /PDF/i });
-    fireEvent.click(pdfTab);
-
     const copyBtn = await screen.findByRole('button', {
       name: /Copy Citation/i,
     });
@@ -276,25 +325,39 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
     expect(screen.getByText(/Copied!/i)).toBeInTheDocument();
   });
 
-  it('steps through multiple search hits across pages updating target banner and coordinates', async () => {
+  it('steps through multiple search hits across matches', async () => {
     const match1 = {
       ...match(0, 20),
       sourceId: 'src-multi',
-      sourceName: 'Algorithms.pdf',
+      sourceName: 'Algorithms.md',
       pageNum: 2,
-      coordinates: [50, 100, 220, 20],
       elementType: 'heading',
       content: 'Graph Shortest Paths',
     };
     const match2 = {
       ...match(100, 140),
       sourceId: 'src-multi',
-      sourceName: 'Algorithms.pdf',
+      sourceName: 'Algorithms.md',
       pageNum: 5,
-      coordinates: [70, 250, 350, 60],
       elementType: 'table',
       content: 'Algorithm Complexity Comparison Table',
     };
+
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-multi',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Algorithms.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 2048,
+      status: 'READY',
+      jobId: null,
+      content:
+        '# Graph Shortest Paths\n\nSome description.\n\nAlgorithm Complexity Comparison Table',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
 
     render(
       React.createElement(SourceViewerDialog, {
@@ -305,61 +368,56 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
       }),
     );
 
-    const pdfTab = screen.getByRole('tab', { name: /PDF/i });
-    fireEvent.click(pdfTab);
-
-    // Initially at match 1 (Page 2)
+    // Initially at match 1
     expect(await screen.findByText(/1 \/ 2/i)).toBeInTheDocument();
-    expect(
-      document.body.querySelector('.pdf-target-tag.is-page')?.textContent,
-    ).toContain('Page 2');
-    expect(screen.getByText(/Target Box: 50, 100/i)).toBeInTheDocument();
 
     // Click next match stepper button
     const nextBtn = screen.getByRole('button', { name: /Next match/i });
     fireEvent.click(nextBtn);
 
-    // Now at match 2 (Page 5)
+    // Now at match 2
     expect(screen.getByText(/2 \/ 2/i)).toBeInTheDocument();
-    expect(
-      document.body.querySelector('.pdf-target-tag.is-page')?.textContent,
-    ).toContain('Page 5');
-    expect(screen.getByText(/Target Box: 70, 250/i)).toBeInTheDocument();
-
-    // Verify coordinate box title updated for Page 5
-    const coordBox = document.body.querySelector('.pdf-coordinate-box');
-    expect(coordBox?.getAttribute('title')).toContain('Page 5');
 
     // Click previous match stepper button
     const prevBtn = screen.getByRole('button', { name: /Previous match/i });
     fireEvent.click(prevBtn);
 
-    // Back to match 1 (Page 2)
+    // Back to match 1
     expect(screen.getByText(/1 \/ 2/i)).toBeInTheDocument();
-    expect(
-      document.body.querySelector('.pdf-target-tag.is-page')?.textContent,
-    ).toContain('Page 2');
   });
 
   it('navigates search hits using [ and ] keyboard shortcuts', async () => {
     const match1 = {
       ...match(0, 20),
       sourceId: 'src-kbd',
-      sourceName: 'System-Architecture.pdf',
+      sourceName: 'System-Architecture.md',
       pageNum: 1,
-      coordinates: [30, 90, 180, 25],
       elementType: 'heading',
       content: 'Kernel vs User Space',
     };
     const match2 = {
       ...match(50, 90),
       sourceId: 'src-kbd',
-      sourceName: 'System-Architecture.pdf',
+      sourceName: 'System-Architecture.md',
       pageNum: 4,
-      coordinates: [60, 150, 300, 40],
       elementType: 'table',
       content: 'System Call Benchmarks',
     };
+
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-kbd',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'System-Architecture.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 2048,
+      status: 'READY',
+      jobId: null,
+      content: '# Kernel vs User Space\n\nSystem Call Benchmarks',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
 
     render(
       React.createElement(SourceViewerDialog, {
@@ -370,24 +428,15 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
       }),
     );
 
-    const pdfTab = screen.getByRole('tab', { name: /PDF/i });
-    fireEvent.click(pdfTab);
-
     expect(await screen.findByText(/1 \/ 2/i)).toBeInTheDocument();
 
     // Press ']' key to navigate to next hit
     fireEvent.keyDown(window, { key: ']' });
     expect(screen.getByText(/2 \/ 2/i)).toBeInTheDocument();
-    expect(
-      document.body.querySelector('.pdf-target-tag.is-page')?.textContent,
-    ).toContain('Page 4');
 
     // Press '[' key to navigate to previous hit
     fireEvent.keyDown(window, { key: '[' });
     expect(screen.getByText(/1 \/ 2/i)).toBeInTheDocument();
-    expect(
-      document.body.querySelector('.pdf-target-tag.is-page')?.textContent,
-    ).toContain('Page 1');
   });
 
   it('parses markdown table into headers and rows', () => {
@@ -404,75 +453,6 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
     expect(parsed?.rows[1]).toEqual(['Midterm', '35%', 'Week 7']);
 
     expect(parseMarkdownTable('Plain non table text')).toBeNull();
-  });
-
-  it('renders interactive table inspector and highlights selected column', async () => {
-    const tableMatch = {
-      ...match(0, 50),
-      sourceId: 'src-table-doc',
-      sourceName: 'Syllabus.pdf',
-      pageNum: 2,
-      coordinates: [50, 100, 300, 80],
-      elementType: 'table',
-      content: `| Component | Weight | Due Date |
-| --- | --- | --- |
-| Midterm Exam | 35% | Week 7 |
-| Final Exam | 50% | Week 12 |`,
-    };
-
-    render(
-      React.createElement(SourceViewerDialog, {
-        sourceId: 'src-table-doc',
-        matches: [tableMatch],
-        focusedMatch: tableMatch,
-        onOpenChange: vi.fn(),
-      }),
-    );
-
-    const pdfTab = screen.getByRole('tab', { name: /PDF/i });
-    fireEvent.click(pdfTab);
-
-    // Verify table toggle button is displayed and ON
-    expect(await screen.findByText(/Table: ON/i)).toBeInTheDocument();
-
-    // Verify table inspector renders headers
-    expect(screen.getByText('Component')).toBeInTheDocument();
-    expect(screen.getByText('Weight')).toBeInTheDocument();
-    expect(screen.getByText('Due Date')).toBeInTheDocument();
-    expect(screen.getByText('Midterm Exam')).toBeInTheDocument();
-
-    // Click 'Weight' column header to highlight it
-    const weightHeader = screen.getByText('Weight').closest('th');
-    expect(weightHeader).not.toBeNull();
-    fireEvent.click(weightHeader!);
-
-    // Verify 'Weight' header and its corresponding cells have .is-active-col
-    expect(weightHeader?.classList.contains('is-active-col')).toBe(true);
-    expect(screen.getByText('Active')).toBeInTheDocument();
-
-    const weightCells = document.body.querySelectorAll(
-      '.pdf-table-td.is-active-col',
-    );
-    expect(weightCells.length).toBe(2);
-    expect(weightCells[0]?.textContent).toContain('35%');
-    expect(weightCells[1]?.textContent).toContain('50%');
-
-    // Click 'Clear Column Highlight'
-    const clearBtn = screen.getByRole('button', {
-      name: /Clear Column Highlight/i,
-    });
-    fireEvent.click(clearBtn);
-
-    expect(
-      document.body.querySelectorAll('.pdf-table-td.is-active-col').length,
-    ).toBe(0);
-    expect(screen.queryByText('Active')).not.toBeInTheDocument();
-
-    // Toggle table inspector off
-    const toggleBtn = screen.getByRole('button', { name: /Table: ON/i });
-    fireEvent.click(toggleBtn);
-    expect(screen.getByText(/Table: OFF/i)).toBeInTheDocument();
-    expect(document.body.querySelector('.pdf-table-inspector')).toBeNull();
   });
 
   it('renders corner resize grip handle and supports interactive panel resizing', async () => {
@@ -519,5 +499,507 @@ describe('SourceViewerDialog - PDF Citation Coordinate Overlays', () => {
     const parsedHeight = Number.parseInt(dialogContent.style.height, 10);
     expect(parsedWidth).toBeGreaterThanOrEqual(480);
     expect(parsedHeight).toBeGreaterThanOrEqual(380);
+  });
+
+  it('switches to Split view mode and displays live markdown preview side-by-side with editor', async () => {
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-split',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Split-Document.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Initial Title\n\nInitial paragraph text.',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-split',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    // Initial view is Preview
+    expect(await screen.findByText('Initial Title')).toBeInTheDocument();
+
+    // Switch to Split tab
+    const splitTab = screen.getByRole('tab', { name: /Split/i });
+    fireEvent.click(splitTab);
+
+    // Verify split container exists
+    const splitContainer = document.querySelector('.split-editor-container');
+    expect(splitContainer).toBeInTheDocument();
+
+    const editorPane = document.querySelector('.split-editor-pane');
+    const previewPane = document.querySelector('.split-preview-pane');
+    expect(editorPane).toBeInTheDocument();
+    expect(previewPane).toBeInTheDocument();
+
+    // Verify live preview header
+    expect(screen.getByText(/Live Preview/i)).toBeInTheDocument();
+
+    // Update note content in split mode
+    const textarea = screen.getByPlaceholderText(
+      /Write your markdown note here/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(textarea, {
+      target: {
+        value: '# Realtime Header\n\nLive preview update verified.',
+      },
+    });
+
+    // Verify preview immediately reflects the new content
+    expect(previewPane?.querySelector('h1')?.textContent).toBe(
+      'Realtime Header',
+    );
+    expect(previewPane?.textContent).toContain('Live preview update verified.');
+  });
+
+  it('automatically saves note after debounced delay when content is edited', async () => {
+    vi.useFakeTimers();
+
+    const updateSpy = vi.spyOn(api, 'updateSource').mockResolvedValue({
+      id: 'src-autosave',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Autosave-Doc.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Content after autosave debounce',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-autosave',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Autosave-Doc.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Initial Autosave Content',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-autosave',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    // Let the initial source fetch promise resolve
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Switch to Edit Note tab
+    const editTab = screen.getByRole('tab', { name: /Edit Note/i });
+    fireEvent.click(editTab);
+
+    const textarea = screen.getByPlaceholderText(
+      /Write your markdown note here/i,
+    ) as HTMLTextAreaElement;
+
+    // Modify text to trigger dirty state
+    fireEvent.change(textarea, {
+      target: { value: '# Content after autosave debounce' },
+    });
+
+    // Unsaved changes status should appear
+    expect(screen.getByTestId('autosave-unsaved')).toBeInTheDocument();
+    expect(screen.getByText(/Unsaved changes/i)).toBeInTheDocument();
+
+    // Advance timers by debounce duration (1200ms)
+    await vi.advanceTimersByTimeAsync(1300);
+    await Promise.resolve();
+
+    // Expect updateSource to have been called automatically
+    expect(updateSpy).toHaveBeenCalledWith('src-autosave', {
+      name: 'Autosave-Doc.md',
+      content: '# Content after autosave debounce',
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    // Verify saved status indicator
+    expect(screen.getByTestId('autosave-saved')).toBeInTheDocument();
+    expect(screen.getByText(/All changes saved/i)).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it('synchronizes scroll positions proportionally between editor and preview in split mode', async () => {
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-sync-scroll',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Long-Doc.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 4096,
+      status: 'READY',
+      jobId: null,
+      content: '# Heading 1\n\n' + 'Paragraph text.\n\n'.repeat(50),
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-sync-scroll',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    await screen.findByText('Heading 1');
+
+    // Switch to Split tab
+    const splitTab = screen.getByRole('tab', { name: /Split/i });
+    fireEvent.click(splitTab);
+
+    // Verify sync scroll button starts enabled
+    const syncBtn = screen.getByTestId('toggle-sync-scroll-btn');
+    expect(syncBtn).toHaveTextContent('Sync on');
+
+    const textarea = screen.getByPlaceholderText(
+      /Write your markdown note here/i,
+    ) as HTMLTextAreaElement;
+    const previewScroll = document.querySelector(
+      '.split-preview-scroll',
+    ) as HTMLDivElement;
+
+    // Define scroll dimensions on textarea and preview container
+    Object.defineProperty(textarea, 'scrollHeight', {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(textarea, 'clientHeight', {
+      value: 200,
+      configurable: true,
+    });
+    Object.defineProperty(previewScroll, 'scrollHeight', {
+      value: 2000,
+      configurable: true,
+    });
+    Object.defineProperty(previewScroll, 'clientHeight', {
+      value: 400,
+      configurable: true,
+    });
+
+    // Scroll textarea to 400 (50% of scrollable range: 400 / 800)
+    textarea.scrollTop = 400;
+    fireEvent.scroll(textarea);
+
+    // Preview scrollable range is 1600 (2000 - 400). 50% = 800
+    expect(previewScroll.scrollTop).toBe(800);
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    // Scroll preview to 1200 (75% of 1600)
+    previewScroll.scrollTop = 1200;
+    fireEvent.scroll(previewScroll);
+
+    // Textarea scrollable range is 800. 75% = 600
+    expect(textarea.scrollTop).toBe(600);
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    // Toggle sync scroll off
+    fireEvent.click(syncBtn);
+    expect(syncBtn).toHaveTextContent('Sync off');
+
+    // Scrolling when disabled should not update the other pane
+    textarea.scrollTop = 100;
+    fireEvent.scroll(textarea);
+    expect(previewScroll.scrollTop).toBe(1200);
+  });
+
+  it('hides edit mode and save button when user lacks write access (canEdit=false)', async () => {
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-readonly-1',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Readonly-Document.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Read Only Header\n\nContent for viewing only.',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-readonly-1',
+        matches: [],
+        canEdit: false,
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    // Initial view is Preview
+    expect(await screen.findByText('Read Only Header')).toBeInTheDocument();
+
+    // Mode tabs: Preview and Split are visible
+    expect(screen.getByRole('tab', { name: /Preview/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Split/i })).toBeInTheDocument();
+
+    // Edit Note and Raw tabs are NOT visible
+    expect(screen.queryByRole('tab', { name: /Edit Note/i })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Raw/i })).toBeNull();
+
+    // Save Note button is NOT visible anywhere
+    expect(screen.queryByRole('button', { name: /Save Note/i })).toBeNull();
+    expect(screen.queryByTestId('autosave-unsaved')).toBeNull();
+
+    // Switch to Split tab
+    const splitTab = screen.getByRole('tab', { name: /Split/i });
+    fireEvent.click(splitTab);
+
+    // Verify split container is active
+    expect(
+      document.querySelector('.split-editor-container'),
+    ).toBeInTheDocument();
+
+    // Verify Title input is read-only
+    const titleInput = screen.getByLabelText(/Note title/i) as HTMLInputElement;
+    expect(titleInput).toBeInTheDocument();
+    expect(titleInput.readOnly).toBe(true);
+
+    // Verify Textarea is read-only
+    const textarea = screen.getByPlaceholderText(
+      /Markdown source content.../i,
+    ) as HTMLTextAreaElement;
+    expect(textarea).toBeInTheDocument();
+    expect(textarea.readOnly).toBe(true);
+
+    // Verify Save Note button is NOT in split toolbar
+    expect(screen.queryByRole('button', { name: /Save Note/i })).toBeNull();
+    expect(screen.queryByTestId('autosave-unsaved')).toBeNull();
+
+    // Verify live preview still renders content in split mode
+    const previewPane = document.querySelector('.split-preview-pane');
+    expect(previewPane?.querySelector('h1')?.textContent).toBe(
+      'Read Only Header',
+    );
+  });
+
+  it('derives write access from useGraphStore permissions when canEdit prop is omitted', async () => {
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-store-perm',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Store-Perm.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Store Permissions Test',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    // Case 1: graph in store cannot be edited
+    useGraphStore.setState({
+      graph: {
+        id: 'graph-1',
+        title: 'Public Graph',
+        description: null,
+        userId: 'other-user',
+        isPublic: true,
+        isPrepared: true,
+        nodes: [],
+        edges: [],
+        sources: [],
+        isOwned: false,
+        permission: 'VIEWER',
+        canEdit: false,
+        accessCount: 1,
+      },
+    });
+
+    const { unmount } = render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-store-perm',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    expect(
+      await screen.findByText('Store Permissions Test'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Edit Note/i })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Raw/i })).toBeNull();
+
+    unmount();
+
+    // Case 2: graph in store can be edited
+    useGraphStore.setState({
+      graph: {
+        id: 'graph-1',
+        title: 'Owned Graph',
+        description: null,
+        userId: 'my-user',
+        isPublic: false,
+        isPrepared: true,
+        nodes: [],
+        edges: [],
+        sources: [],
+        isOwned: true,
+        permission: 'OWNER',
+        canEdit: true,
+        accessCount: 1,
+      },
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-store-perm',
+        matches: [],
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    expect(
+      await screen.findByText('Store Permissions Test'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Edit Note/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Raw/i })).toBeInTheDocument();
+
+    // Clean up store
+    useGraphStore.setState({ graph: undefined });
+  });
+
+  it('prevents saving and autosaving when write access is false', async () => {
+    vi.useFakeTimers();
+
+    const updateSpy = vi.spyOn(api, 'updateSource');
+
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-no-save',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'No-Save.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: '# Initial Content',
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-no-save',
+        matches: [],
+        canEdit: false,
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(20);
+
+    // Switch to Split tab
+    const splitTab = screen.getByRole('tab', { name: /Split/i });
+    fireEvent.click(splitTab);
+
+    // Advance timers well beyond debounced autosave interval
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(updateSpy).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  it('navigates matches via stepper and updates counter and active match focus', async () => {
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+
+    const sampleContent =
+      '# Document Title\n\nFirst paragraph with alpha content.\n\nSecond paragraph with beta content.';
+
+    vi.spyOn(api, 'source').mockResolvedValue({
+      id: 'src-stepper',
+      nodeId: 'node-1',
+      graphId: 'graph-1',
+      name: 'Stepper.md',
+      fileType: 'text/markdown',
+      fileUrl: '',
+      sizeBytes: 1024,
+      status: 'READY',
+      jobId: null,
+      content: sampleContent,
+      createdAt: '2026-09-03',
+      updatedAt: '2026-09-03',
+    });
+
+    const matches: SearchChunk[] = [
+      {
+        graphId: 'graph-1',
+        nodeId: 'node-1',
+        sourceId: 'src-stepper',
+        sourceName: 'Stepper.md',
+        startChar: 18,
+        endChar: 52,
+        content: 'First paragraph with alpha content.',
+        context: 'First paragraph with alpha content.',
+        pageNum: 1,
+        score: 0.95,
+      },
+      {
+        graphId: 'graph-1',
+        nodeId: 'node-1',
+        sourceId: 'src-stepper',
+        sourceName: 'Stepper.md',
+        startChar: 54,
+        endChar: 88,
+        content: 'Second paragraph with beta content.',
+        context: 'Second paragraph with beta content.',
+        pageNum: 1,
+        score: 0.88,
+      },
+    ];
+
+    render(
+      React.createElement(SourceViewerDialog, {
+        sourceId: 'src-stepper',
+        matches,
+        onOpenChange: vi.fn(),
+      }),
+    );
+
+    expect(await screen.findByText('Document Title')).toBeInTheDocument();
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+
+    const nextBtn = screen.getByRole('button', { name: /Next match/i });
+    expect(nextBtn).toBeEnabled();
+
+    fireEvent.click(nextBtn);
+
+    expect(screen.getByText('2 / 2')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalled();
+    });
   });
 });

@@ -27,10 +27,34 @@ export function useEscapeKey({
         return;
       }
 
-      const { expandedNodeIds, collapseAllNodes } = useGraphStore.getState();
+      const {
+        expandedNodeIds,
+        collapseAllNodes,
+        mode,
+        setMode,
+        selectedNodeIds,
+        setSelectedNodeIds,
+        crawlStartingNodeIds,
+        setCrawlStartingNodeIds,
+      } = useGraphStore.getState();
+
       if (expandedNodeIds.length > 0) {
         event.preventDefault();
         collapseAllNodes();
+        return;
+      }
+
+      if (mode === 'CONTEXT_SELECTION' && selectedNodeIds.length > 0) {
+        event.preventDefault();
+        setSelectedNodeIds([]);
+        setMode('IDLE');
+        return;
+      }
+
+      if (mode === 'CRAWL_SELECTION' && crawlStartingNodeIds.length > 0) {
+        event.preventDefault();
+        setCrawlStartingNodeIds([]);
+        return;
       }
     }
 

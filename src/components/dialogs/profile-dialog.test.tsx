@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../lib/api';
@@ -15,7 +15,7 @@ describe('ProfileDialog', () => {
     userId: 'user-1',
     username: 'Alice',
     email: 'alice@example.com',
-    tier: 'PRO',
+    tier: 'REGISTERED',
     isGuest: false,
     role: 'admin',
   };
@@ -45,7 +45,7 @@ describe('ProfileDialog', () => {
     expect(screen.getByText('Your account')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Alice')).toBeInTheDocument();
     expect(screen.getByDisplayValue('alice@example.com')).toBeInTheDocument();
-    expect(screen.getByText('PRO')).toBeInTheDocument();
+    expect(screen.getByText('REGISTERED')).toBeInTheDocument();
 
     // Verify Retention & Archives is present
     expect(
@@ -57,5 +57,33 @@ describe('ProfileDialog', () => {
       screen.queryByRole('button', { name: /Administration Portal/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/Admin/i)).not.toBeInTheDocument();
+  });
+
+  it('renders Privacy & Cookies button and calls onOpenPrivacy when clicked', async () => {
+    vi.spyOn(api, 'profile').mockResolvedValue({
+      ...identity,
+      preferredLanguage: 'en',
+    });
+    vi.spyOn(api, 'sessions').mockResolvedValue([]);
+
+    const onOpenPrivacy = vi.fn();
+    const onOpenChange = vi.fn();
+
+    render(
+      <ProfileDialog
+        identity={identity}
+        open={true}
+        onOpenChange={onOpenChange}
+        onIdentityChange={vi.fn()}
+        onLogout={vi.fn()}
+        onOpenPrivacy={onOpenPrivacy}
+      />,
+    );
+
+    const privacyBtn = screen.getByTestId('profile-open-privacy');
+    expect(privacyBtn).toBeInTheDocument();
+    fireEvent.click(privacyBtn);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenPrivacy).toHaveBeenCalledTimes(1);
   });
 });

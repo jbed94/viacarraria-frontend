@@ -180,11 +180,63 @@ export function useUploadManager({
         .catch(reportError);
     }
 
+    function createNoteListener(event: Event): void {
+      const detail = (
+        event as CustomEvent<{
+          nodeId: string;
+          title: string;
+          content: string;
+          onSuccess?: (source: Source) => void;
+        }>
+      ).detail;
+      if (!graph || !detail) return;
+      void api
+        .createNote(graph.id, detail.nodeId, detail.title, detail.content)
+        .then((source) => {
+          setSources([...graph.sources, source]);
+          detail.onSuccess?.(source);
+          pollSource(source.id);
+        })
+        .catch(reportError);
+    }
+
+    function updateSourceListener(event: Event): void {
+      const detail = (
+        event as CustomEvent<{
+          sourceId: string;
+          name?: string;
+          content?: string;
+          onSuccess?: (source: Source) => void;
+        }>
+      ).detail;
+      if (!detail?.sourceId) return;
+      void api
+        .updateSource(detail.sourceId, {
+          name: detail.name,
+          content: detail.content,
+        })
+        .then((source) => {
+          const current = useGraphStore.getState().graph;
+          if (current) {
+            setSources(
+              current.sources.map((item) =>
+                item.id === source.id ? source : item,
+              ),
+            );
+          }
+          detail.onSuccess?.(source);
+          pollSource(source.id);
+        })
+        .catch(reportError);
+    }
+
     window.addEventListener('via-upload-source', uploadListener);
     window.addEventListener('via-pause-upload', pauseListener);
     window.addEventListener('via-resume-upload', resumeListener);
     window.addEventListener('via-cancel-upload', cancelListener);
     window.addEventListener('via-delete-source', deleteListener);
+    window.addEventListener('via-create-note', createNoteListener);
+    window.addEventListener('via-update-source', updateSourceListener);
 
     return () => {
       window.removeEventListener('via-upload-source', uploadListener);
@@ -192,6 +244,8 @@ export function useUploadManager({
       window.removeEventListener('via-resume-upload', resumeListener);
       window.removeEventListener('via-cancel-upload', cancelListener);
       window.removeEventListener('via-delete-source', deleteListener);
+      window.removeEventListener('via-create-note', createNoteListener);
+      window.removeEventListener('via-update-source', updateSourceListener);
     };
   }, [graph, setSources]);
 }

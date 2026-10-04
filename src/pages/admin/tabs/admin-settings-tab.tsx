@@ -2,10 +2,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Layers,
+  DollarSign,
+  HardDrive,
+  Languages,
+  Plus,
   RefreshCw,
   Save,
   Shield,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -26,34 +30,37 @@ export function AdminSettingsTab() {
   // Form State
   const [retentionDays, setRetentionDays] = useState(90);
   const [retentionGraceDays, setRetentionGraceDays] = useState(7);
-  const [freeMaxNodes, setFreeMaxNodes] = useState(100);
-  const [freeMaxSources, setFreeMaxSources] = useState(5);
-  const [freeMaxSourceMb, setFreeMaxSourceMb] = useState(25);
-  const [proMaxNodes, setProMaxNodes] = useState(5000);
-  const [proMaxSources, setProMaxSources] = useState(50);
-  const [proMaxSourceMb, setProMaxSourceMb] = useState(100);
+  const [anonQueueThroughput, setAnonQueueThroughput] = useState(30);
+  const [regQueueThroughput, setRegQueueThroughput] = useState(120);
+  const [defaultStorageLimitMb, setDefaultStorageLimitMb] = useState(100);
   const [anonymousRateLimit, setAnonymousRateLimit] = useState(30);
   const [authenticatedRateLimit, setAuthenticatedRateLimit] = useState(120);
   const [burstMultiplier, setBurstMultiplier] = useState(2);
+  const [effectiveEcpm, setEffectiveEcpm] = useState(1.5);
+  const [canvasAdDensity, setCanvasAdDensity] = useState(35);
+  const [maxCanvasAds, setMaxCanvasAds] = useState(5);
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [allowedIpsText, setAllowedIpsText] = useState('127.0.0.1, ::1');
   const [exemptUserIdsText, setExemptUserIdsText] = useState('');
   const [exemptRolesText, setExemptRolesText] = useState('admin');
+  const [synonyms, setSynonyms] = useState<Record<string, string[]>>({});
+  const [newSynonymKey, setNewSynonymKey] = useState('');
+  const [newSynonymTerms, setNewSynonymTerms] = useState('');
 
   const populateForm = (data: AdminSystemSettings) => {
     setSettings(data);
     setRetentionDays(data.retentionDays);
     setRetentionGraceDays(data.retentionGraceDays);
-    setFreeMaxNodes(data.freeTierLimits.maxNodes);
-    setFreeMaxSources(data.freeTierLimits.maxSourcesPerGraph);
-    setFreeMaxSourceMb(
-      Math.round(data.freeTierLimits.maxSourceSizeBytes / (1024 * 1024)),
+    setAnonQueueThroughput(
+      data.similarityQuota?.anonymousThroughputPerMinute ?? 30,
     );
-    setProMaxNodes(data.proTierLimits.maxNodes);
-    setProMaxSources(data.proTierLimits.maxSourcesPerGraph);
-    setProMaxSourceMb(
-      Math.round(data.proTierLimits.maxSourceSizeBytes / (1024 * 1024)),
+    setRegQueueThroughput(
+      data.similarityQuota?.registeredThroughputPerMinute ?? 120,
     );
+    setDefaultStorageLimitMb(data.storageConfig?.defaultStorageLimitMb ?? 100);
+    setEffectiveEcpm(data.adConfig?.effectiveEcpm ?? 1.5);
+    setCanvasAdDensity(data.adConfig?.canvasAdDensity ?? 35);
+    setMaxCanvasAds(data.adConfig?.maxCanvasAds ?? 5);
     setAnonymousRateLimit(data.rateLimits.anonymousPerMinute);
     setAuthenticatedRateLimit(data.rateLimits.authenticatedPerMinute);
     setBurstMultiplier(data.rateLimits.burstMultiplier);
@@ -69,6 +76,32 @@ export function AdminSettingsTab() {
     setExemptRolesText(
       (data.maintenanceExemptions?.exemptRoles ?? ['admin']).join(', '),
     );
+    setSynonyms(data.synonymsConfig ?? {});
+  };
+
+  const handleAddSynonym = () => {
+    const key = newSynonymKey.trim().toLowerCase();
+    if (!key) return;
+    const terms = newSynonymTerms
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    if (terms.length === 0) return;
+
+    setSynonyms((prev) => ({
+      ...prev,
+      [key]: [...new Set([...(prev[key] ?? []), ...terms])],
+    }));
+    setNewSynonymKey('');
+    setNewSynonymTerms('');
+  };
+
+  const handleRemoveSynonym = (keyToRemove: string) => {
+    setSynonyms((prev) => {
+      const next = { ...prev };
+      delete next[keyToRemove];
+      return next;
+    });
   };
 
   const loadSettings = async () => {
@@ -103,15 +136,17 @@ export function AdminSettingsTab() {
     const payload: UpdateAdminSystemSettingsDto = {
       retentionDays: Number(retentionDays),
       retentionGraceDays: Number(retentionGraceDays),
-      freeTierLimits: {
-        maxNodes: Number(freeMaxNodes),
-        maxSourcesPerGraph: Number(freeMaxSources),
-        maxSourceSizeBytes: Number(freeMaxSourceMb) * 1024 * 1024,
+      similarityQuota: {
+        anonymousThroughputPerMinute: Number(anonQueueThroughput),
+        registeredThroughputPerMinute: Number(regQueueThroughput),
       },
-      proTierLimits: {
-        maxNodes: Number(proMaxNodes),
-        maxSourcesPerGraph: Number(proMaxSources),
-        maxSourceSizeBytes: Number(proMaxSourceMb) * 1024 * 1024,
+      storageConfig: {
+        defaultStorageLimitMb: Number(defaultStorageLimitMb),
+      },
+      adConfig: {
+        effectiveEcpm: Number(effectiveEcpm),
+        canvasAdDensity: Number(canvasAdDensity),
+        maxCanvasAds: Number(maxCanvasAds),
       },
       rateLimits: {
         anonymousPerMinute: Number(anonymousRateLimit),
@@ -124,6 +159,7 @@ export function AdminSettingsTab() {
         exemptUserIds: parseList(exemptUserIdsText),
         exemptRoles: parseList(exemptRolesText),
       },
+      synonymsConfig: synonyms,
     };
 
     try {
@@ -143,12 +179,9 @@ export function AdminSettingsTab() {
   const handleResetDefaults = () => {
     setRetentionDays(90);
     setRetentionGraceDays(7);
-    setFreeMaxNodes(100);
-    setFreeMaxSources(5);
-    setFreeMaxSourceMb(25);
-    setProMaxNodes(5000);
-    setProMaxSources(50);
-    setProMaxSourceMb(100);
+    setAnonQueueThroughput(30);
+    setRegQueueThroughput(120);
+    setDefaultStorageLimitMb(100);
     setAnonymousRateLimit(30);
     setAuthenticatedRateLimit(120);
     setBurstMultiplier(2);
@@ -156,6 +189,9 @@ export function AdminSettingsTab() {
     setAllowedIpsText('127.0.0.1, ::1');
     setExemptUserIdsText('');
     setExemptRolesText('admin');
+    setSynonyms(settings?.synonymsConfig ?? {});
+    setNewSynonymKey('');
+    setNewSynonymTerms('');
   };
 
   if (loading && !settings) {
@@ -377,15 +413,15 @@ export function AdminSettingsTab() {
             </div>
           </div>
 
-          {/* Section 3: Free vs Pro Tier Limits */}
+          {/* Section 3: Similarity Search Quota & Storage Boundaries */}
           <div className="admin-card settings-section full-width">
             <div className="settings-section-header">
-              <Layers className="settings-section-icon" size={20} />
+              <HardDrive className="settings-section-icon" size={20} />
               <div>
-                <h3>Subscription Quotas & Resource Boundaries</h3>
+                <h3>Similarity Search Queue Quota & Storage Boundaries</h3>
                 <p>
-                  Defines canvas node limits, source attachments, and single
-                  upload ceilings per tier.
+                  Configure postponing queue throughput for Weaviate similarity
+                  searches and default user document storage capacity.
                 </p>
               </div>
             </div>
@@ -393,115 +429,268 @@ export function AdminSettingsTab() {
             <div className="tier-quota-columns">
               <div className="tier-quota-card free-tier">
                 <div className="tier-quota-header">
-                  <span className="tier-badge free">FREE TIER</span>
-                  <h4>Free Accounts Quota</h4>
+                  <span className="tier-badge free">SEARCH QUEUE</span>
+                  <h4>Weaviate Similarity Quota</h4>
                 </div>
 
                 <div className="settings-field">
-                  <label htmlFor="free-max-nodes">Max Nodes per Graph</label>
-                  <input
-                    id="free-max-nodes"
-                    type="number"
-                    min="10"
-                    max="1000"
-                    value={freeMaxNodes}
-                    onChange={(e) => setFreeMaxNodes(Number(e.target.value))}
-                    required
-                  />
-                </div>
-
-                <div className="settings-field">
-                  <label htmlFor="free-max-sources">
-                    Max Sources per Graph
-                  </label>
-                  <input
-                    id="free-max-sources"
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={freeMaxSources}
-                    onChange={(e) => setFreeMaxSources(Number(e.target.value))}
-                    required
-                  />
-                </div>
-
-                <div className="settings-field">
-                  <label htmlFor="free-max-size">
-                    Max Single Source File Size (MB)
+                  <label htmlFor="anon-queue-throughput">
+                    Anonymous Search Throughput / Min
                   </label>
                   <div className="settings-input-wrapper">
                     <input
-                      id="free-max-size"
+                      id="anon-queue-throughput"
                       type="number"
                       min="1"
-                      max="100"
-                      value={freeMaxSourceMb}
+                      max="1000"
+                      value={anonQueueThroughput}
                       onChange={(e) =>
-                        setFreeMaxSourceMb(Number(e.target.value))
+                        setAnonQueueThroughput(Number(e.target.value))
                       }
                       required
                     />
-                    <span className="unit-label">MB</span>
+                    <span className="unit-label">ops/min</span>
                   </div>
+                  <small>
+                    Guest search capacity. Requests above this rate are
+                    postponed in the FIFO queue without throwing errors.
+                  </small>
+                </div>
+
+                <div className="settings-field">
+                  <label htmlFor="reg-queue-throughput">
+                    Registered Search Throughput / Min
+                  </label>
+                  <div className="settings-input-wrapper">
+                    <input
+                      id="reg-queue-throughput"
+                      type="number"
+                      min="1"
+                      max="5000"
+                      value={regQueueThroughput}
+                      onChange={(e) =>
+                        setRegQueueThroughput(Number(e.target.value))
+                      }
+                      required
+                    />
+                    <span className="unit-label">ops/min</span>
+                  </div>
+                  <small>
+                    Registered user search capacity. Heavy concurrent queries
+                    are delayed gracefully when queue fills.
+                  </small>
                 </div>
               </div>
 
               <div className="tier-quota-card pro-tier">
                 <div className="tier-quota-header">
-                  <span className="tier-badge pro">PRO TIER</span>
-                  <h4>Pro Accounts Quota</h4>
+                  <span className="tier-badge pro">STORAGE QUOTA</span>
+                  <h4>Registered Storage Limits</h4>
                 </div>
 
                 <div className="settings-field">
-                  <label htmlFor="pro-max-nodes">Max Nodes per Graph</label>
-                  <input
-                    id="pro-max-nodes"
-                    type="number"
-                    min="500"
-                    max="50000"
-                    value={proMaxNodes}
-                    onChange={(e) => setProMaxNodes(Number(e.target.value))}
-                    required
-                  />
-                </div>
-
-                <div className="settings-field">
-                  <label htmlFor="pro-max-sources">Max Sources per Graph</label>
-                  <input
-                    id="pro-max-sources"
-                    type="number"
-                    min="5"
-                    max="200"
-                    value={proMaxSources}
-                    onChange={(e) => setProMaxSources(Number(e.target.value))}
-                    required
-                  />
-                </div>
-
-                <div className="settings-field">
-                  <label htmlFor="pro-max-size">
-                    Max Single Source File Size (MB)
+                  <label htmlFor="default-storage-limit">
+                    Default User Document Storage Limit (MB)
                   </label>
                   <div className="settings-input-wrapper">
                     <input
-                      id="pro-max-size"
+                      id="default-storage-limit"
                       type="number"
-                      min="10"
-                      max="1000"
-                      value={proMaxSourceMb}
+                      min="1"
+                      max="102400"
+                      value={defaultStorageLimitMb}
                       onChange={(e) =>
-                        setProMaxSourceMb(Number(e.target.value))
+                        setDefaultStorageLimitMb(Number(e.target.value))
                       }
                       required
                     />
                     <span className="unit-label">MB</span>
                   </div>
+                  <small>
+                    Default source document quota allocated to every registered
+                    account. Can be customized per user in the Users tab.
+                  </small>
+                </div>
+
+                <div className="admin-callout info mt-3">
+                  <strong>Zero-Monetization Architecture:</strong>
+                  <p className="text-xs text-muted mt-1">
+                    Knowledge graphs and node counts are unlimited for
+                    registered users. Anonymous guests may query and crawl
+                    public templates but cannot store documents or create
+                    graphs.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Section 4: Maintenance Operations */}
+          {/* Section 4: Ad Monetization & Canvas Density Configuration */}
+          <div className="admin-card settings-section full-width">
+            <div className="settings-section-header">
+              <DollarSign className="settings-section-icon" size={20} />
+              <div>
+                <h3>Ad Monetization & Canvas Density Parameters</h3>
+                <p>
+                  Configure baseline eCPM revenue estimation and calibrate
+                  dynamic canvas ad unit frequency across knowledge graphs.
+                </p>
+              </div>
+            </div>
+
+            <div className="settings-field-group">
+              <div className="settings-field">
+                <label htmlFor="effective-ecpm">
+                  Base eCPM Calculation Rate ($ / 1,000 Impressions)
+                </label>
+                <div className="settings-input-wrapper">
+                  <input
+                    id="effective-ecpm"
+                    type="number"
+                    min="0.1"
+                    max="100"
+                    step="0.01"
+                    value={effectiveEcpm}
+                    onChange={(e) => setEffectiveEcpm(Number(e.target.value))}
+                    required
+                  />
+                  <span className="unit-label">USD</span>
+                </div>
+                <small>
+                  Used across admin analytics dashboards and knowledge graph
+                  leaderboard calculations.
+                </small>
+              </div>
+
+              <div className="settings-field">
+                <label htmlFor="canvas-ad-density">
+                  Canvas Ad Node Density Ratio
+                </label>
+                <div className="settings-input-wrapper">
+                  <input
+                    id="canvas-ad-density"
+                    type="number"
+                    min="5"
+                    max="500"
+                    value={canvasAdDensity}
+                    onChange={(e) => setCanvasAdDensity(Number(e.target.value))}
+                    required
+                  />
+                  <span className="unit-label">nodes/ad</span>
+                </div>
+                <small>
+                  Ratio of subject nodes required before introducing an
+                  additional canvas ad unit.
+                </small>
+              </div>
+
+              <div className="settings-field">
+                <label htmlFor="max-canvas-ads">
+                  Maximum Concurrent Canvas Ads
+                </label>
+                <div className="settings-input-wrapper">
+                  <input
+                    id="max-canvas-ads"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={maxCanvasAds}
+                    onChange={(e) => setMaxCanvasAds(Number(e.target.value))}
+                    required
+                  />
+                  <span className="unit-label">ads</span>
+                </div>
+                <small>
+                  Strict ceiling on simultaneous canvas ad nodes to preserve
+                  rendering performance and user experience.
+                </small>
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Search Synonyms & Acronym Expansion Dictionary */}
+          <div className="admin-card settings-section full-width">
+            <div className="settings-section-header">
+              <Languages className="settings-section-icon" size={20} />
+              <div>
+                <h3>Search Synonyms & Technical Acronym Expansion</h3>
+                <p>
+                  Configure acronym and domain synonym mappings used during
+                  Weaviate hybrid search BM25 expansion.
+                </p>
+              </div>
+            </div>
+
+            <div className="synonyms-dictionary-card">
+              <div className="synonym-add-row">
+                <div className="synonym-add-field key-field">
+                  <label htmlFor="new-synonym-key">Acronym / Keyword</label>
+                  <input
+                    id="new-synonym-key"
+                    type="text"
+                    placeholder="e.g. k8s, bfs, db"
+                    value={newSynonymKey}
+                    onChange={(e) => setNewSynonymKey(e.target.value)}
+                  />
+                </div>
+                <div className="synonym-add-field">
+                  <label htmlFor="new-synonym-terms">
+                    Expansion Terms (comma-separated)
+                  </label>
+                  <input
+                    id="new-synonym-terms"
+                    type="text"
+                    placeholder="e.g. kubernetes, container orchestration"
+                    value={newSynonymTerms}
+                    onChange={(e) => setNewSynonymTerms(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddSynonym();
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="admin-btn secondary"
+                  onClick={handleAddSynonym}
+                  disabled={!newSynonymKey.trim() || !newSynonymTerms.trim()}
+                  title="Add synonym mapping"
+                >
+                  <Plus size={14} />
+                  <span>Add Mapping</span>
+                </button>
+              </div>
+
+              <div className="synonyms-items-grid">
+                {Object.entries(synonyms).map(([key, terms]) => (
+                  <div key={key} className="synonym-item-card">
+                    <div className="synonym-item-info">
+                      <span className="synonym-item-key">{key}</span>
+                      <span
+                        className="synonym-item-terms"
+                        title={terms.join(', ')}
+                      >
+                        {terms.join(', ')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="synonym-remove-btn"
+                      onClick={() => handleRemoveSynonym(key)}
+                      title={`Remove synonym for "${key}"`}
+                      aria-label={`Remove synonym for ${key}`}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5: Maintenance Operations */}
           <div className="admin-card settings-section full-width">
             <div className="settings-section-header">
               <Shield className="settings-section-icon" size={20} />

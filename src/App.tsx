@@ -6,35 +6,38 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { CanvasWelcomeHub } from './components/canvas/canvas-welcome-hub';
+import { CrawlResultsCanvas } from './components/canvas/crawl-results-canvas';
 import { GraphCanvas } from './components/canvas/graph-canvas';
+import { AdConsentBanner } from './components/ads/ad-consent-banner';
 import { AuthDialog } from './components/dialogs/auth-dialog';
 import { ConfirmationDialog } from './components/dialogs/confirmation-dialog';
 import { CopyGraphDialog } from './components/dialogs/copy-graph-dialog';
 import { GraphDialog } from './components/dialogs/graph-dialog';
 import { EditorControls } from './components/overlays/editor-controls';
 import { Header } from './components/overlays/header';
-import {
-  HistoryDrawer,
-  historyToResults,
-} from './components/overlays/history-drawer';
+import { HistoryDrawer } from './components/overlays/history-drawer';
 import { MaintenanceOverlay } from './components/overlays/maintenance-overlay';
 import { ResultsSidebar } from './components/overlays/results-sidebar';
 import { RetentionWarningBanner } from './components/overlays/retention-warning-banner';
 import { SearchBar } from './components/overlays/search-bar';
+import { CircularProgress } from './components/ui/circular-progress';
 import { useDialogState } from './hooks/use-dialog-state';
 import { useEscapeKey } from './hooks/use-escape-key';
+import { useGraphActions } from './hooks/use-graph-actions';
 import { useGraphAutosave } from './hooks/use-graph-autosave';
 import { useNotifications } from './hooks/use-notifications';
+import { useSearchActions } from './hooks/use-search-actions';
 import { useSocketSync } from './hooks/use-socket-sync';
 import { useTheme } from './hooks/use-theme';
 import { useUploadManager } from './hooks/use-upload-manager';
 import { ApiError, api, subscribeMaintenanceMode } from './lib/api';
-import { layoutGraph } from './lib/layout';
 import { getSourceMatches } from './lib/search-utils';
 import { useGraphStore } from './store/graph-store';
-import type { LimitsSummary, QueryHistory } from './types/api';
+import type { LimitsSummary } from './types/api';
 
 const GraphBrowserDialog = lazy(() =>
   import('./components/browser/graph-browser-dialog').then((m) => ({
@@ -44,16 +47,6 @@ const GraphBrowserDialog = lazy(() =>
 const GraphSettingsDialog = lazy(() =>
   import('./components/dialogs/graph-settings-dialog').then((m) => ({
     default: m.GraphSettingsDialog,
-  })),
-);
-const NodeEditorDialog = lazy(() =>
-  import('./components/dialogs/node-editor-dialog').then((m) => ({
-    default: m.NodeEditorDialog,
-  })),
-);
-const PricingDialog = lazy(() =>
-  import('./components/dialogs/pricing-dialog').then((m) => ({
-    default: m.PricingDialog,
   })),
 );
 const ProfileDialog = lazy(() =>
@@ -71,6 +64,16 @@ const RetentionDashboardDialog = lazy(() =>
     default: m.RetentionDashboardDialog,
   })),
 );
+const PrivacyPolicyDialog = lazy(() =>
+  import('./components/dialogs/privacy-policy-dialog').then((m) => ({
+    default: m.PrivacyPolicyDialog,
+  })),
+);
+const FigureLightboxDialog = lazy(() =>
+  import('./components/dialogs/figure-lightbox-dialog').then((m) => ({
+    default: m.FigureLightboxDialog,
+  })),
+);
 
 export function App() {
   const identity = useGraphStore((state) => state.identity);
@@ -78,12 +81,15 @@ export function App() {
   const graphs = useGraphStore((state) => state.graphs);
   const history = useGraphStore((state) => state.history);
   const results = useGraphStore((state) => state.results);
+  const activeLightboxFigure = useGraphStore(
+    (state) => state.activeLightboxFigure,
+  );
+  const closeLightbox = useGraphStore((state) => state.closeLightbox);
   const isEditing = useGraphStore((state) => state.isEditing);
   const isLoading = useGraphStore((state) => state.isLoading);
   const error = useGraphStore((state) => state.error);
   const activeSourceId = useGraphStore((state) => state.activeSourceId);
   const activeMatch = useGraphStore((state) => state.activeMatch);
-  const editingNodeId = useGraphStore((state) => state.editingNodeId);
   const pendingDeleteNodeId = useGraphStore(
     (state) => state.pendingDeleteNodeId,
   );
@@ -93,11 +99,17 @@ export function App() {
   const setGraph = useGraphStore((state) => state.setGraph);
   const setHistory = useGraphStore((state) => state.setHistory);
   const setResults = useGraphStore((state) => state.setResults);
+  const mode = useGraphStore((state) => state.mode);
+  const crawlResults = useGraphStore((state) => state.crawlResults);
+  const setCrawlResults = useGraphStore((state) => state.setCrawlResults);
   const setMode = useGraphStore((state) => state.setMode);
+  const setQueryType = useGraphStore((state) => state.setQueryType);
+  const setCrawlStartingNodeIds = useGraphStore(
+    (state) => state.setCrawlStartingNodeIds,
+  );
   const setEditing = useGraphStore((state) => state.setEditing);
   const setActiveSourceId = useGraphStore((state) => state.setActiveSourceId);
   const setActiveMatch = useGraphStore((state) => state.setActiveMatch);
-  const setEditingNodeId = useGraphStore((state) => state.setEditingNodeId);
   const setPendingDeleteNodeId = useGraphStore(
     (state) => state.setPendingDeleteNodeId,
   );
@@ -106,20 +118,39 @@ export function App() {
   const setError = useGraphStore((state) => state.setError);
   const addRoot = useGraphStore((state) => state.addRoot);
   const removeNode = useGraphStore((state) => state.removeNode);
-  const updateNode = useGraphStore((state) => state.updateNode);
   const replaceCanvas = useGraphStore((state) => state.replaceCanvas);
   const collapseAllNodes = useGraphStore((state) => state.collapseAllNodes);
   const setSelectedNodeIds = useGraphStore((state) => state.setSelectedNodeIds);
 
   const dialogs = useDialogState();
   const [limits, setLimits] = useState<LimitsSummary>();
-  const [queryForEdit, setQueryForEdit] = useState<string>();
-  const [isFinalizing, setFinalizing] = useState(false);
   const { theme, setTheme } = useTheme();
   const [maintenanceState, setMaintenanceState] = useState<{
     active: boolean;
     message?: string;
   }>({ active: false });
+  const [ingestionToast, setIngestionToast] = useState<{
+    sourceName: string;
+    status: 'PROCESSING' | 'READY' | 'ERROR';
+    progress?: number;
+    message: string;
+  } | null>(null);
+  const ingestionToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+
+  useEffect(() => {
+    setWelcomeDismissed(false);
+  }, [graph?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (ingestionToastTimeoutRef.current) {
+        clearTimeout(ingestionToastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return subscribeMaintenanceMode((active, message) => {
@@ -186,8 +217,79 @@ export function App() {
     graph,
     setSources,
     setLimits,
-    onError: reportError,
+    onError: (uploadError) => {
+      reportError(uploadError);
+      if (
+        uploadError instanceof ApiError &&
+        (uploadError.status === 403 || uploadError.status === 429) &&
+        identity?.isGuest
+      ) {
+        dialogs.open('auth');
+      }
+    },
   });
+
+  // Graph CRUD and layout actions
+  const {
+    isFinalizing,
+    createGraph,
+    copyGraph,
+    attachGraph,
+    saveGraphSettings,
+    finalizeGraph,
+    arrangeGraph,
+  } = useGraphActions({
+    graph,
+    graphs,
+    identity,
+    dialogs,
+    setGraphs,
+    loadGraph,
+    setEditing,
+    setLimits,
+    refreshNotifications,
+    replaceCanvas,
+    reportError,
+  });
+
+  // Search, crawl, and history execution actions
+  const {
+    queryForEdit,
+    isCrawling,
+    crawlStepProgress,
+    handleCancelCrawl,
+    handleCrawlProgress,
+    search,
+    crawl,
+    restoreHistory,
+    editHistory,
+    rerunHistory,
+  } = useSearchActions({
+    graph,
+    identity,
+    dialogs,
+    loadGraph,
+    setResults,
+    setCrawlResults,
+    setHistory,
+    setLimits,
+    setQueryType,
+    setMode,
+    setSelectedNodeIds,
+    setCrawlStartingNodeIds,
+    reportError,
+  });
+
+  // Global event triggers for auth dialog from canvas components
+  useEffect(() => {
+    function handleOpenAuth() {
+      dialogs.open('auth');
+    }
+    window.addEventListener('via-open-auth', handleOpenAuth);
+    return () => {
+      window.removeEventListener('via-open-auth', handleOpenAuth);
+    };
+  }, [dialogs]);
 
   // Real-time WebSocket room and notification synchronization
   useSocketSync({
@@ -208,9 +310,73 @@ export function App() {
               : source,
           ),
         );
+
+        const targetSource = current.sources.find(
+          (s) => s.id === update.sourceId,
+        );
+        const sourceName = targetSource?.name || 'Document';
+
+        if (ingestionToastTimeoutRef.current) {
+          clearTimeout(ingestionToastTimeoutRef.current);
+          ingestionToastTimeoutRef.current = null;
+        }
+
+        if (update.status === 'READY') {
+          pushLiveNotification({
+            id: `src-ready-${update.sourceId}-${Date.now()}`,
+            userId: identity?.userId ?? 'guest',
+            type: 'source_ready',
+            title: 'Source Ready',
+            message: `"${sourceName}" is now fully indexed and searchable.`,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+            data: { graphId: current.id, sourceId: update.sourceId },
+          });
+
+          setIngestionToast({
+            sourceName,
+            status: 'READY',
+            message: `"${sourceName}" ready`,
+          });
+          ingestionToastTimeoutRef.current = setTimeout(() => {
+            setIngestionToast(null);
+          }, 4000);
+        } else if (update.status === 'ERROR') {
+          pushLiveNotification({
+            id: `src-err-${update.sourceId}-${Date.now()}`,
+            userId: identity?.userId ?? 'guest',
+            type: 'source_error',
+            title: 'Source Processing Failed',
+            message: `Failed to index "${sourceName}".`,
+            isRead: false,
+            createdAt: new Date().toISOString(),
+            data: { graphId: current.id, sourceId: update.sourceId },
+          });
+
+          setIngestionToast({
+            sourceName,
+            status: 'ERROR',
+            message: `Failed to index "${sourceName}"`,
+          });
+          ingestionToastTimeoutRef.current = setTimeout(() => {
+            setIngestionToast(null);
+          }, 5000);
+        } else if (update.status === 'PROCESSING') {
+          const progressText =
+            typeof update.progress === 'number'
+              ? ` (${Math.round(update.progress)}%)`
+              : '';
+          setIngestionToast({
+            sourceName,
+            status: 'PROCESSING',
+            progress: update.progress,
+            message: `Indexing "${sourceName}"${progressText}...`,
+          });
+        }
       }
     },
     onNewNotification: pushLiveNotification,
+    onCrawlProgress: handleCrawlProgress,
   });
 
   const handleCloseResults = useCallback(() => {
@@ -220,19 +386,29 @@ export function App() {
       return;
     }
     setResults(undefined);
+    setCrawlResults(undefined);
     setActiveMatch(undefined);
+    const currentQueryType = useGraphStore.getState().queryType;
+    if (currentQueryType === 'crawl') {
+      setMode('CRAWL_SELECTION');
+    } else {
+      const currentSelected = useGraphStore.getState().selectedNodeIds;
+      setMode(currentSelected.length > 0 ? 'CONTEXT_SELECTION' : 'IDLE');
+    }
     collapseAllNodes();
   }, [
     activeSourceId,
     setActiveSourceId,
     setActiveMatch,
     setResults,
+    setCrawlResults,
+    setMode,
     collapseAllNodes,
   ]);
 
-  // Global Escape key shortcut
+  // Global Escape key shortcut (simple search results)
   useEscapeKey({
-    hasResults: Boolean(results),
+    hasResults: Boolean(results && mode !== 'CRAWL_RESULTS'),
     onEscapeResults: handleCloseResults,
   });
 
@@ -264,170 +440,9 @@ export function App() {
     void bootstrap();
   }, []);
 
-  async function search(
-    query: string,
-    extendedSearch: boolean,
-    sensitivity?: 'low' | 'medium' | 'high',
-    scope?: 'narrow' | 'normal' | 'wide',
-  ): Promise<void> {
-    if (!graph) return;
-    try {
-      setResults(
-        await api.search(
-          graph.id,
-          query,
-          useGraphStore.getState().selectedNodeIds,
-          extendedSearch,
-          sensitivity,
-          scope,
-        ),
-      );
-      setHistory(await api.history());
-      setLimits(await api.limits());
-    } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 401) {
-        dialogs.open('auth');
-      }
-      if (
-        requestError instanceof ApiError &&
-        (requestError.status === 403 || requestError.status === 429)
-      ) {
-        dialogs.open('pricing');
-      }
-      reportError(requestError);
-    }
-  }
-
-  async function createGraph(
-    title: string,
-    description: string,
-    isPublic = false,
-  ): Promise<void> {
-    if (identity?.isGuest) {
-      dialogs.close('create');
-      dialogs.open('auth');
-      return;
-    }
-    try {
-      const next = await api.createGraph(title, description, isPublic);
-      setGraphs([...graphs, next]);
-      await loadGraph(next.id);
-      setLimits(await api.limits());
-      setEditing(true);
-    } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 403) {
-        dialogs.open('pricing');
-      }
-      reportError(requestError);
-    }
-  }
-
-  async function copyGraph(title: string, isPublic = false): Promise<boolean> {
-    if (!graph) return false;
-    if (!identity || identity.isGuest) {
-      dialogs.open('auth');
-      return false;
-    }
-    try {
-      const copied = await api.copyGraph(graph.id, title, isPublic);
-      setGraphs(await api.graphs());
-      await loadGraph(copied.id);
-      setEditing(true);
-      setLimits(await api.limits());
-      return true;
-    } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 403) {
-        dialogs.open('pricing');
-      }
-      reportError(requestError);
-      return false;
-    }
-  }
-
-  async function attachGraph(id: string): Promise<void> {
-    if (identity?.isGuest) {
-      dialogs.open('auth');
-      return;
-    }
-    try {
-      await api.attachGraph(id);
-      setGraphs(await api.graphs());
-      if (graph?.id === id) {
-        await loadGraph(id);
-      }
-    } catch (requestError) {
-      reportError(requestError);
-    }
-  }
-
-  async function saveGraphSettings(values: {
-    title: string;
-    description: string;
-    isPublic: boolean;
-    isExemptFromRetention?: boolean;
-  }): Promise<void> {
-    if (!graph) return;
-    try {
-      await api.updateSettings(graph.id, values);
-      setGraphs(await api.graphs());
-      await loadGraph(graph.id);
-      setLimits(await api.limits());
-      void refreshNotifications();
-    } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 403) {
-        dialogs.open('pricing');
-      }
-      reportError(requestError);
-    }
-  }
-
-  async function finalizeGraph(): Promise<void> {
-    if (!graph) return;
-    setFinalizing(true);
-    try {
-      await api.finalizeGraph(graph.id);
-      await loadGraph(graph.id);
-      setGraphs(await api.graphs());
-    } catch (requestError) {
-      reportError(requestError);
-    } finally {
-      setFinalizing(false);
-    }
-  }
-
-  function arrangeGraph(): void {
-    if (graph) {
-      replaceCanvas(layoutGraph(graph.nodes, graph.edges), graph.edges);
-    }
-  }
-
-  function restoreHistory(entry: QueryHistory): void {
-    const restored = historyToResults(entry);
-    if (!restored) return;
-    void (async () => {
-      try {
-        if (entry.graphId !== graph?.id) await loadGraph(entry.graphId);
-        setSelectedNodeIds(entry.selectedNodeIds);
-        setResults(restored);
-      } catch (requestError) {
-        reportError(requestError);
-      }
-    })();
-  }
-
-  function editHistory(entry: QueryHistory): void {
-    if (entry.graphId !== graph?.id) {
-      void loadGraph(entry.graphId).catch(reportError);
-    }
-    setQueryForEdit(entry.queryText);
-    setSelectedNodeIds(entry.selectedNodeIds);
-    setMode('CONTEXT_SELECTION');
-  }
-
-  const currentNode = graph?.nodes.find((node) => node.id === editingNodeId);
   const sourceMatches = useMemo(
-    () => getSourceMatches(results, activeSourceId),
-    [results, activeSourceId],
+    () => getSourceMatches(results, activeSourceId, crawlResults),
+    [results, activeSourceId, crawlResults],
   );
 
   const isUnattachedPublic = Boolean(
@@ -441,7 +456,51 @@ export function App() {
   return (
     <main className="app-shell">
       <div className="canvas-layer">
-        <GraphCanvas key={graph?.id ?? 'empty'} />
+        {mode === 'CRAWL_RESULTS' && crawlResults ? (
+          <CrawlResultsCanvas
+            crawlResults={crawlResults}
+            isStreaming={isCrawling}
+            crawlStepProgress={crawlStepProgress ?? undefined}
+            onOpenSource={(sourceId, chunk) => {
+              setActiveSourceId(sourceId);
+              setActiveMatch(chunk);
+            }}
+            onClose={handleCloseResults}
+            onCancel={handleCancelCrawl}
+          />
+        ) : (
+          <GraphCanvas key={graph?.id ?? 'empty'} />
+        )}
+        {mode !== 'CRAWL_RESULTS' &&
+        (!graph || graph.nodes.length === 0) &&
+        !welcomeDismissed &&
+        !isLoading ? (
+          <CanvasWelcomeHub
+            graphTitle={graph?.title}
+            isGuest={identity?.isGuest}
+            canEdit={graph?.canEdit ?? graph?.isOwned ?? false}
+            onExploreDemo={() => {
+              const demoGraph = graphs.find((g) => !g.isOwned) || graphs[0];
+              if (demoGraph) void loadGraph(demoGraph.id).catch(reportError);
+              else dialogs.open('browser');
+            }}
+            onAskQuestion={() => {
+              const input = document.getElementById('main-search-input');
+              input?.focus();
+            }}
+            onAddOrImport={() => {
+              if (graph?.canEdit ?? graph?.isOwned) {
+                if (!isEditing) setEditing(true);
+                addRoot();
+              } else if (identity?.isGuest) {
+                dialogs.open('auth');
+              } else {
+                dialogs.open('create');
+              }
+            }}
+            onDismiss={() => setWelcomeDismissed(true)}
+          />
+        ) : null}
       </div>
       <div className="overlay-layer">
         <Header
@@ -466,8 +525,8 @@ export function App() {
           onToggleEditing={() => setEditing(!isEditing)}
           onOpenAuth={() => dialogs.open('auth')}
           onOpenProfile={() => dialogs.open('profile')}
-          onOpenPricing={() => dialogs.open('pricing')}
           onOpenRetentionDashboard={() => dialogs.open('retention')}
+          onOpenPrivacy={() => dialogs.open('privacy')}
           theme={theme}
           onThemeChange={setTheme}
           notifications={notifications}
@@ -498,6 +557,7 @@ export function App() {
           entries={history}
           onRestore={restoreHistory}
           onEdit={editHistory}
+          onRerun={rerunHistory}
           onTogglePin={(entry) =>
             void api
               .updateQuery(entry.id, { isPinned: !entry.isPinned })
@@ -529,7 +589,7 @@ export function App() {
           }}
           onClose={handleCloseResults}
         />
-        {isUnattachedPublic && graph ? (
+        {mode === 'CRAWL_RESULTS' ? null : isUnattachedPublic && graph ? (
           <div
             className="unattached-query-banner overlay-interactive"
             role="region"
@@ -564,12 +624,41 @@ export function App() {
         ) : (
           <SearchBar
             onSearch={search}
+            onCrawl={crawl}
             queryForEdit={queryForEdit}
             tier={identity?.tier}
             onRequireAuth={() => dialogs.open('auth')}
           />
         )}
       </div>
+      {isCrawling && crawlStepProgress && mode !== 'CRAWL_RESULTS' ? (
+        <div className="crawl-streaming-toast overlay-interactive">
+          <span className="crawl-streaming-spinner" />
+          <span>
+            {crawlStepProgress.message || 'Crawling graph frontier...'}
+          </span>
+        </div>
+      ) : null}
+      {ingestionToast ? (
+        <div
+          className={`source-ingestion-toast is-${ingestionToast.status.toLowerCase()} overlay-interactive`}
+          role="status"
+          aria-live="polite"
+        >
+          {ingestionToast.status === 'PROCESSING' ? (
+            <CircularProgress
+              size={16}
+              strokeWidth={2.5}
+              value={ingestionToast.progress}
+            />
+          ) : ingestionToast.status === 'READY' ? (
+            <span className="toast-check-icon">✓</span>
+          ) : (
+            <span className="toast-err-icon">!</span>
+          )}
+          <span>{ingestionToast.message}</span>
+        </div>
+      ) : null}
       {isLoading ? (
         <div className="page-status">Loading knowledge map...</div>
       ) : null}
@@ -594,12 +683,6 @@ export function App() {
         open={dialogs.isOpen('create')}
         onOpenChange={(open) => dialogs.set('create', open)}
         onCreate={createGraph}
-        privateQuota={limits?.privateGraphs}
-        tier={identity?.tier}
-        onOpenPricing={() => {
-          dialogs.close('create');
-          dialogs.open('pricing');
-        }}
       />
       <CopyGraphDialog
         graph={graph}
@@ -607,10 +690,6 @@ export function App() {
         open={dialogs.isOpen('copy')}
         onOpenChange={(open) => dialogs.set('copy', open)}
         onCopy={copyGraph}
-        onOpenPricing={() => {
-          dialogs.close('copy');
-          dialogs.open('pricing');
-        }}
       />
       <Suspense fallback={null}>
         <GraphSettingsDialog
@@ -619,10 +698,6 @@ export function App() {
           open={dialogs.isOpen('settings')}
           onOpenChange={(open) => dialogs.set('settings', open)}
           onSave={saveGraphSettings}
-          onOpenPricing={() => {
-            dialogs.close('settings');
-            dialogs.open('pricing');
-          }}
         />
         <GraphBrowserDialog
           open={dialogs.isOpen('browser')}
@@ -642,15 +717,11 @@ export function App() {
             if (graph) void loadGraph(graph.id);
           }}
         />
-        <NodeEditorDialog
-          node={currentNode}
-          onOpenChange={(open) => !open && setEditingNodeId(undefined)}
-          onSave={updateNode}
-        />
         <SourceViewerDialog
           sourceId={activeSourceId}
           matches={sourceMatches}
           focusedMatch={activeMatch}
+          canEdit={graph?.canEdit ?? graph?.isOwned ?? false}
           onOpenChange={(open) => {
             if (!open) {
               setActiveSourceId(undefined);
@@ -672,12 +743,10 @@ export function App() {
             dialogs.close('profile');
             dialogs.open('retention');
           }}
-        />
-        <PricingDialog
-          identity={identity}
-          open={dialogs.isOpen('pricing')}
-          onOpenChange={(open) => dialogs.set('pricing', open)}
-          onUpgraded={() => bootstrap(graph?.id)}
+          onOpenPrivacy={() => {
+            dialogs.close('profile');
+            dialogs.open('privacy');
+          }}
         />
         <RetentionDashboardDialog
           open={dialogs.isOpen('retention')}
@@ -686,6 +755,14 @@ export function App() {
             void api.graphs().then(setGraphs);
             void loadGraph(restoredGraphId);
           }}
+        />
+        <PrivacyPolicyDialog
+          open={dialogs.isOpen('privacy')}
+          onOpenChange={(open) => dialogs.set('privacy', open)}
+        />
+        <FigureLightboxDialog
+          figure={activeLightboxFigure ?? null}
+          onClose={closeLightbox}
         />
       </Suspense>
       <ConfirmationDialog
@@ -698,6 +775,7 @@ export function App() {
           setPendingDeleteNodeId(undefined);
         }}
       />
+      <AdConsentBanner onOpenPrivacy={() => dialogs.open('privacy')} />
       {maintenanceState.active && (
         <MaintenanceOverlay
           message={maintenanceState.message}

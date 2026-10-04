@@ -1,14 +1,13 @@
 import {
   Archive,
   ArrowLeft,
-  CreditCard,
   LayoutDashboard,
+  Layers,
   Menu,
   Moon,
   Network,
   ScrollText,
   Server,
-  Shield,
   Sliders,
   Sun,
   Users,
@@ -18,13 +17,14 @@ import { useState } from 'react';
 
 import { useTheme } from '../../hooks/use-theme';
 import { useGraphStore } from '../../store/graph-store';
+import { ViaCarrariaIcon } from '../../components/brand';
 import { AdminAuthGuard } from './admin-auth-guard';
 import { AdminAuditTab } from './tabs/admin-audit-tab';
 import { AdminGraphsTab } from './tabs/admin-graphs-tab';
 import { AdminOverviewTab } from './tabs/admin-overview-tab';
+import { AdminPlansTab } from './tabs/admin-plans-tab';
 import { AdminRetentionTab } from './tabs/admin-retention-tab';
 import { AdminSettingsTab } from './tabs/admin-settings-tab';
-import { AdminSubscriptionsTab } from './tabs/admin-subscriptions-tab';
 import { AdminSystemTab } from './tabs/admin-system-tab';
 import { AdminUsersTab } from './tabs/admin-users-tab';
 
@@ -33,7 +33,7 @@ type AdminTab =
   | 'users'
   | 'graphs'
   | 'retention'
-  | 'subscriptions'
+  | 'plans'
   | 'settings'
   | 'system'
   | 'audit';
@@ -62,7 +62,7 @@ export function AdminPage({
     { id: 'users', label: 'User Accounts', icon: Users },
     { id: 'graphs', label: 'Knowledge Graphs', icon: Network },
     { id: 'retention', label: 'Retention & Archives', icon: Archive },
-    { id: 'subscriptions', label: 'Revenue & Billing', icon: CreditCard },
+    { id: 'plans', label: 'Plans & Tiers', icon: Layers },
     { id: 'settings', label: 'System Configuration', icon: Sliders },
     { id: 'system', label: 'Cluster & Proxy Health', icon: Server },
     { id: 'audit', label: 'Admin Audit Trail', icon: ScrollText },
@@ -83,8 +83,13 @@ export function AdminPage({
               {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
             <div className="portal-logo-group" onClick={onBackToCanvas}>
-              <div className="portal-badge-icon">
-                <Shield size={18} />
+              <div className="portal-badge-icon" aria-hidden="true">
+                <ViaCarrariaIcon
+                  size={20}
+                  variant="bare"
+                  interactive
+                  aria-hidden="true"
+                />
               </div>
               <h1>Via Carraria</h1>
               <span className="admin-env-pill">ADMIN</span>
@@ -168,7 +173,7 @@ export function AdminPage({
               <AdminGraphsTab onOpenGraphOnCanvas={onOpenGraphOnCanvas} />
             )}
             {activeTab === 'retention' && <AdminRetentionTab />}
-            {activeTab === 'subscriptions' && <AdminSubscriptionsTab />}
+            {activeTab === 'plans' && <AdminPlansTab />}
             {activeTab === 'settings' && <AdminSettingsTab />}
             {activeTab === 'system' && <AdminSystemTab />}
             {activeTab === 'audit' && <AdminAuditTab />}

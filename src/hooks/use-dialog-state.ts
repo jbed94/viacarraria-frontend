@@ -3,12 +3,12 @@ import { useCallback, useState } from 'react';
 export type DialogName =
   | 'auth'
   | 'create'
-  | 'pricing'
   | 'profile'
   | 'copy'
   | 'browser'
   | 'settings'
-  | 'retention';
+  | 'retention'
+  | 'privacy';
 
 export function useDialogState() {
   const [activeDialogs, setActiveDialogs] = useState<
@@ -16,12 +16,12 @@ export function useDialogState() {
   >({
     auth: false,
     create: false,
-    pricing: false,
     profile: false,
     copy: false,
     browser: false,
     settings: false,
     retention: false,
+    privacy: false,
   });
 
   const open = useCallback((name: DialogName) => {
@@ -44,12 +44,12 @@ export function useDialogState() {
     setActiveDialogs({
       auth: false,
       create: false,
-      pricing: false,
       profile: false,
       copy: false,
       browser: false,
       settings: false,
       retention: false,
+      privacy: false,
     });
   }, []);
 

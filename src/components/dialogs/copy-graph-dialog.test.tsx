@@ -32,32 +32,36 @@ const graph: Graph = {
 };
 
 const limits: LimitsSummary = {
-  tier: 'FREE',
-  graphs: { used: 2, limit: 3, exceeded: false },
-  privateGraphs: { used: 0, limit: 2, exceeded: false },
-  queries: { used: 4, limit: 20, exceeded: false },
-  uploads: { used: 1, limit: 10, exceeded: false },
-  selectedNodes: { used: 0, limit: 10, exceeded: false },
-  nodesPerGraph: { used: 0, limit: 10, exceeded: false },
-  sourcesPerNode: { used: 0, limit: 3, exceeded: false },
-  sourceSizeBytes: { used: 0, limit: 2 * 1024 * 1024, exceeded: false },
-  extendedContext: { used: 0, limit: 3, exceeded: false },
+  tier: 'REGISTERED',
+  storage: {
+    usedBytes: 10 * 1024 * 1024,
+    limitBytes: 100 * 1024 * 1024,
+    limitMb: 100,
+    usedPercentage: 10,
+    exceeded: false,
+  },
+  queueOccupation: 'low',
+  canCreateGraphs: true,
+  crawl: {
+    allowedDepths: ['shallow', 'default', 'deep', 'unlimited'],
+    maxStartingPoints: null,
+    allowComparative: true,
+  },
 };
 
 describe('CopyGraphDialog', () => {
   afterEach(cleanup);
 
-  it('shows the current graph and node limits before confirming an oversized copy', async () => {
+  it('prefills default copy name and allows submitting copy', async () => {
     const onCopy = vi.fn().mockResolvedValue(true);
-    const onOpenPricing = vi.fn();
+    const onOpenChange = vi.fn();
     render(
       <CopyGraphDialog
         graph={graph}
         limits={limits}
         open
-        onOpenChange={vi.fn()}
+        onOpenChange={onOpenChange}
         onCopy={onCopy}
-        onOpenPricing={onOpenPricing}
       />,
     );
 
@@ -66,42 +70,36 @@ describe('CopyGraphDialog', () => {
         'Computer Science (Copy)',
       ),
     );
-    expect(screen.getByText('2 / 3')).toBeInTheDocument();
-    expect(
-      screen.getByText(/14 nodes, but your plan allows only 10/),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Upgrade plan' }));
-    expect(onOpenPricing).toHaveBeenCalledOnce();
-    expect(onCopy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy graph' }));
+    await waitFor(() =>
+      expect(onCopy).toHaveBeenCalledWith('Computer Science (Copy)', false),
+    );
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('confirms an allowed copy with the edited name and supports cancel', async () => {
-    const allowedLimits = {
-      ...limits,
-      nodesPerGraph: { used: 0, limit: 10, exceeded: false },
-    };
-    const allowedGraph = {
-      ...graph,
-      nodes: graph.nodes.slice(0, 2),
-    };
+  it('confirms an allowed copy with edited name and supports private visibility', async () => {
     const onCopy = vi.fn().mockResolvedValue(true);
     const onOpenChange = vi.fn();
     render(
       <CopyGraphDialog
-        graph={allowedGraph}
-        limits={allowedLimits}
+        graph={graph}
+        limits={limits}
         open
         onOpenChange={onOpenChange}
         onCopy={onCopy}
-        onOpenPricing={vi.fn()}
       />,
     );
 
     const input = await screen.findByRole('textbox');
     fireEvent.change(input, { target: { value: 'My copied graph' } });
+
+    // Select public visibility radio
+    const publicRadio = screen.getByRole('radio', { name: /Public/i });
+    fireEvent.click(publicRadio);
+
     fireEvent.click(screen.getByRole('button', { name: 'Copy graph' }));
     await waitFor(() =>
-      expect(onCopy).toHaveBeenCalledWith('My copied graph', false),
+      expect(onCopy).toHaveBeenCalledWith('My copied graph', true),
     );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });

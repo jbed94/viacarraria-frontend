@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App';
+import { registerServiceWorker } from './lib/pwa';
 import './i18n';
 import 'katex/dist/katex.min.css';
 import './styles.css';
@@ -17,3 +18,5 @@ createRoot(rootElement).render(
     <App />
   </StrictMode>,
 );
+
+void registerServiceWorker();

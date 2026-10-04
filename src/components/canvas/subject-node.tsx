@@ -13,10 +13,11 @@ import {
   Pause,
   Play,
   Plus,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGraphStore } from '../../store/graph-store';
@@ -29,12 +30,23 @@ export function SubjectNode({ id, data }: NodeProps) {
   const graph = useGraphStore((state) => state.graph);
   const identity = useGraphStore((state) => state.identity);
   const mode = useGraphStore((state) => state.mode);
+  const queryType = useGraphStore((state) => state.queryType);
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
+  const previewNodeIds = useGraphStore((state) => state.previewNodeIds);
+  const crawlStartingNodeIds = useGraphStore(
+    (state) => state.crawlStartingNodeIds,
+  );
   const results = useGraphStore((state) => state.results);
+  const minRelevanceScore = useGraphStore((state) => state.minRelevanceScore);
   const expandedNodeIds = useGraphStore((state) => state.expandedNodeIds);
   const isEditing = useGraphStore((state) => state.isEditing);
+  const isFocusMode = useGraphStore((state) => state.isFocusMode);
+  const focusedNodeId = useGraphStore((state) => state.focusedNodeId);
   const toggleNodeSelection = useGraphStore(
     (state) => state.toggleNodeSelection,
+  );
+  const toggleCrawlStartingNode = useGraphStore(
+    (state) => state.toggleCrawlStartingNode,
   );
   const toggleExpanded = useGraphStore((state) => state.toggleExpanded);
   const setActiveSourceId = useGraphStore((state) => state.setActiveSourceId);
@@ -44,8 +56,32 @@ export function SubjectNode({ id, data }: NodeProps) {
     (state) => state.setPendingDeleteNodeId,
   );
   const addChild = useGraphStore((state) => state.addChild);
+  const updateNode = useGraphStore((state) => state.updateNode);
   const activeUploads = useGraphStore((state) => state.activeUploads);
   const updateNodeInternals = useUpdateNodeInternals();
+
+  const [localTitle, setLocalTitle] = useState(subject.title ?? '');
+  const [localCategory, setLocalCategory] = useState(
+    subject.category ?? 'Topic',
+  );
+  const [localDescription, setLocalDescription] = useState(
+    subject.description ?? '',
+  );
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+  const [newNoteContent, setNewNoteContent] = useState('');
+
+  useEffect(() => {
+    setLocalTitle(subject.title ?? '');
+  }, [subject.title]);
+
+  useEffect(() => {
+    setLocalCategory(subject.category ?? 'Topic');
+  }, [subject.category]);
+
+  useEffect(() => {
+    setLocalDescription(subject.description ?? '');
+  }, [subject.description]);
 
   const nodeUploads = useMemo(
     () => Object.values(activeUploads).filter((upload) => upload.nodeId === id),
@@ -77,13 +113,36 @@ export function SubjectNode({ id, data }: NodeProps) {
     () => results?.results.find((result) => result.nodeId === id),
     [results?.results, id],
   );
-  const isMatched = Boolean(match);
+  const topScore = useMemo(() => {
+    if (!match?.chunks?.length) return 0;
+    return Math.max(
+      ...match.chunks.map((c) => c.rerankScore ?? c.score ?? 0),
+      0,
+    );
+  }, [match]);
+  const isMatched = Boolean(
+    match && (minRelevanceScore <= 0 || topScore >= minRelevanceScore),
+  );
   const isExpanded = expandedNodeIds.includes(id);
   const isSelected = selectedNodeIds.includes(id);
-  const selectionLimit =
-    identity?.tier === 'ANONYMOUS' ? 2 : Number.POSITIVE_INFINITY;
+  const isPreviewed = previewNodeIds.includes(id);
+  const isCrawlMode =
+    queryType === 'crawl' &&
+    (mode === 'CRAWL_SELECTION' || crawlStartingNodeIds.length > 0);
+  const isCrawlStart =
+    queryType === 'crawl' && crawlStartingNodeIds.includes(id);
+  const isCrawlDimmed =
+    isCrawlMode &&
+    crawlStartingNodeIds.length > 0 &&
+    !isCrawlStart &&
+    !isExpanded;
+  const isAnonymous = identity?.isGuest ?? identity?.tier === 'ANONYMOUS';
+  const selectionLimit = isAnonymous ? 2 : Number.POSITIVE_INFINITY;
   const selectionLimitReached =
     selectedNodeIds.length >= selectionLimit && !isSelected;
+  const crawlLimit = isAnonymous ? 1 : Number.POSITIVE_INFINITY;
+  const crawlLimitReached =
+    crawlStartingNodeIds.length >= crawlLimit && !isCrawlStart;
   const matchesBySource = useMemo(() => {
     const map = new Map<string, NonNullable<typeof match>['chunks']>();
     for (const chunk of match?.chunks ?? []) {
@@ -107,20 +166,57 @@ export function SubjectNode({ id, data }: NodeProps) {
     };
   }, [id, isExpanded, updateNodeInternals]);
 
+  const hasContextSelector =
+    mode === 'CONTEXT_SELECTION' ||
+    (queryType === 'simple' && (isSelected || selectedNodeIds.length > 0));
+  const hasCrawlSelector =
+    mode === 'CRAWL_SELECTION' ||
+    (queryType === 'crawl' &&
+      (isCrawlStart || crawlStartingNodeIds.length > 0));
+  const hasSelector = hasContextSelector || hasCrawlSelector;
+
+  const isSoloFocusTarget = Boolean(focusedNodeId && id === focusedNodeId);
+  const isDirectFocusNeighbor = useMemo(() => {
+    if (!focusedNodeId || isSoloFocusTarget) return false;
+    return Boolean(
+      graph?.edges?.some(
+        (edge) =>
+          (edge.source === focusedNodeId && edge.target === id) ||
+          (edge.target === focusedNodeId && edge.source === id),
+      ),
+    );
+  }, [focusedNodeId, isSoloFocusTarget, graph?.edges, id]);
+
+  const isSoloHighlighted =
+    isSoloFocusTarget ||
+    (isFocusMode &&
+      (isMatched || isCrawlStart || (results ? isMatched : isSelected)));
+
+  const isSoloDimmed = Boolean(
+    (isFocusMode || focusedNodeId) &&
+      !isSoloFocusTarget &&
+      !isDirectFocusNeighbor &&
+      !(isFocusMode && (isMatched || isCrawlStart)),
+  );
+
+  const soloClasses = `${isSoloHighlighted ? 'is-focus-highlight' : ''} ${isSoloDimmed ? 'is-solo-dimmed' : ''}`;
+
   return (
     <article
-      className={`subject-node ${isMatched ? 'is-matched' : results ? 'is-muted' : ''} ${isExpanded ? 'is-expanded' : ''}`}
+      className={`subject-node ${isMatched ? 'is-matched' : results ? 'is-muted' : ''} ${isPreviewed ? 'is-previewed' : ''} ${isExpanded ? 'is-expanded' : ''} ${isCrawlStart ? 'is-crawl-start' : ''} ${isCrawlDimmed ? 'is-crawl-dimmed' : ''} ${hasSelector ? 'has-selector' : ''} ${isSelected ? 'is-selected' : ''} ${soloClasses}`.trim()}
     >
       <Handle
         type="target"
         position={Position.Left}
         className={`flow-handle ${isEditing ? '' : 'view-handle'}`}
+        style={{ top: '68px' }}
         isConnectable
       />
       <Handle
         type="source"
         position={Position.Right}
         className={`flow-handle ${isEditing ? '' : 'view-handle'}`}
+        style={{ top: '68px' }}
         isConnectable
       />
       {isEditing ? (
@@ -135,7 +231,10 @@ export function SubjectNode({ id, data }: NodeProps) {
           <button
             type="button"
             title="Edit node details"
-            onClick={() => setEditingNodeId(id)}
+            onClick={() => {
+              setEditingNodeId(id);
+              if (!isExpanded) toggleExpanded(id);
+            }}
           >
             <Maximize2 size={14} />
           </button>
@@ -158,12 +257,73 @@ export function SubjectNode({ id, data }: NodeProps) {
         }}
       >
         <span className="node-topline">
-          <span className="node-category">{subject.category ?? 'Topic'}</span>
-          {match ? (
-            <span className="match-badge">+{match.matchCount}</span>
+          {isEditing ? (
+            <input
+              type="text"
+              className="inline-category-input nodrag nopan"
+              value={localCategory}
+              onChange={(e) => setLocalCategory(e.target.value)}
+              onBlur={() => {
+                if (localCategory !== subject.category) {
+                  updateNode(id, {
+                    ...subject,
+                    category: localCategory.trim() || 'Topic',
+                  });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Category"
+              aria-label="Edit category"
+            />
+          ) : (
+            <span className="node-category">{subject.category ?? 'Topic'}</span>
+          )}
+          {match && isMatched ? (
+            <span
+              className="match-badge"
+              title={
+                topScore > 0
+                  ? `Relevance score: ${Math.round(topScore * 100)}%`
+                  : undefined
+              }
+            >
+              +{match.matchCount}
+            </span>
+          ) : null}
+          {isPreviewed ? (
+            <span
+              className="node-preview-badge"
+              title="Suggested Concept Match"
+            >
+              <Sparkles size={10} />
+              <span>Suggested Concept</span>
+            </span>
           ) : null}
         </span>
-        <strong>{subject.title}</strong>
+        {isEditing ? (
+          <input
+            type="text"
+            className="inline-title-input nodrag nopan"
+            value={localTitle}
+            onChange={(e) => setLocalTitle(e.target.value)}
+            onBlur={() => {
+              if (localTitle.trim() && localTitle !== subject.title) {
+                updateNode(id, { ...subject, title: localTitle.trim() });
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            placeholder="Topic title"
+            aria-label="Edit topic title"
+          />
+        ) : (
+          <strong>{subject.title}</strong>
+        )}
         {sources.length > 0 ? (
           <span className="node-attachments">
             {processingSource ? (
@@ -202,8 +362,15 @@ export function SubjectNode({ id, data }: NodeProps) {
           </span>
         ) : null}
       </button>
-      {mode === 'CONTEXT_SELECTION' ? (
-        <label className="node-selector nodrag nopan">
+      {hasContextSelector ? (
+        <label
+          className="node-selector nodrag nopan"
+          title={
+            selectionLimitReached
+              ? `Selection limit reached (${selectionLimit} nodes for guests)`
+              : undefined
+          }
+        >
           <input
             type="checkbox"
             checked={isSelected}
@@ -211,6 +378,24 @@ export function SubjectNode({ id, data }: NodeProps) {
             onChange={() => toggleNodeSelection(id)}
           />
           <span>Include</span>
+        </label>
+      ) : null}
+      {hasCrawlSelector ? (
+        <label
+          className="node-selector nodrag nopan crawl-selector"
+          title={
+            crawlLimitReached
+              ? `Starting node limit reached (${crawlLimit} node for guests)`
+              : undefined
+          }
+        >
+          <input
+            type="checkbox"
+            checked={isCrawlStart}
+            disabled={crawlLimitReached}
+            onChange={() => toggleCrawlStartingNode(id)}
+          />
+          <span>Start Node</span>
         </label>
       ) : null}
       {isExpanded ? (
@@ -230,7 +415,28 @@ export function SubjectNode({ id, data }: NodeProps) {
               <ChevronUp size={16} aria-hidden="true" />
             </button>
           </div>
-          {subject.description ? (
+          {isEditing ? (
+            <div className="detail-section">
+              <h3>Description</h3>
+              <textarea
+                className="inline-description-input nodrag nopan nowheel"
+                value={localDescription}
+                onChange={(e) => setLocalDescription(e.target.value)}
+                onBlur={() => {
+                  if (localDescription !== (subject.description ?? '')) {
+                    updateNode(id, {
+                      ...subject,
+                      description: localDescription,
+                    });
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="Click to add topic description..."
+                rows={3}
+                aria-label="Edit topic description"
+              />
+            </div>
+          ) : subject.description ? (
             <div className="detail-section">
               <h3>Description</h3>
               <p>{subject.description}</p>
@@ -267,32 +473,6 @@ export function SubjectNode({ id, data }: NodeProps) {
                             >
                               <small>{chunk.content.slice(0, 110)}...</small>
                             </button>
-                            {chunk.extendedContext?.length ? (
-                              <ul className="extended-context-list">
-                                {chunk.extendedContext.map((extendedChunk) => (
-                                  <li
-                                    key={`${extendedChunk.sourceId}-${extendedChunk.startChar}`}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="extended-context-snippet"
-                                      onClick={() => {
-                                        setActiveSourceId(
-                                          extendedChunk.sourceId,
-                                        );
-                                        setActiveMatch(extendedChunk);
-                                      }}
-                                    >
-                                      <FileText size={13} aria-hidden="true" />
-                                      <small>
-                                        {extendedChunk.sourceName}:{' '}
-                                        {extendedChunk.content.slice(0, 90)}...
-                                      </small>
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : null}
                           </li>
                         ))}
                       </ul>
@@ -468,25 +648,106 @@ export function SubjectNode({ id, data }: NodeProps) {
             })}
           </div>
           {isEditing ? (
-            <label className="upload-source" title="Upload a source document">
-              <Plus size={14} />
-              <span>Add source</span>
-              <input
-                type="file"
-                accept=".pdf,.md,.markdown,.txt,application/pdf,text/plain,text/markdown"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) {
-                    window.dispatchEvent(
-                      new CustomEvent('via-upload-source', {
-                        detail: { nodeId: id, file },
-                      }),
-                    );
-                    event.currentTarget.value = '';
-                  }
-                }}
-              />
-            </label>
+            <div className="sources-actions">
+              {isCreatingNote ? (
+                <div
+                  className="inline-note-creator nodrag nopan"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    className="inline-note-title nodrag nopan"
+                    placeholder="Note title (e.g. Overview.md)"
+                    value={newNoteTitle}
+                    onChange={(e) => setNewNoteTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setIsCreatingNote(false);
+                    }}
+                  />
+                  <textarea
+                    className="inline-note-content nodrag nopan nowheel"
+                    placeholder="Write markdown note..."
+                    rows={3}
+                    value={newNoteContent}
+                    onChange={(e) => setNewNoteContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setIsCreatingNote(false);
+                    }}
+                  />
+                  <div className="inline-note-actions">
+                    <button
+                      type="button"
+                      className="inline-note-btn save"
+                      onClick={() => {
+                        const title = newNoteTitle.trim() || 'Untitled Note';
+                        window.dispatchEvent(
+                          new CustomEvent('via-create-note', {
+                            detail: {
+                              nodeId: id,
+                              title,
+                              content: newNoteContent,
+                            },
+                          }),
+                        );
+                        setNewNoteTitle('');
+                        setNewNoteContent('');
+                        setIsCreatingNote(false);
+                      }}
+                    >
+                      Save note
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-note-btn cancel"
+                      onClick={() => {
+                        setNewNoteTitle('');
+                        setNewNoteContent('');
+                        setIsCreatingNote(false);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="source-add-row">
+                  <button
+                    type="button"
+                    className="add-note-btn"
+                    title="Write a new markdown note"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCreatingNote(true);
+                    }}
+                  >
+                    <Plus size={13} />
+                    <span>New note</span>
+                  </button>
+                  <label
+                    className="upload-source"
+                    title="Upload a source document (PDF, Markdown, Office, or Text)"
+                  >
+                    <Plus size={13} />
+                    <span>Add source</span>
+                    <input
+                      type="file"
+                      accept=".pdf,.md,.markdown,.txt,.docx,.pptx,.xlsx,.html,application/pdf,text/plain,text/markdown,text/html,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0];
+                        if (file) {
+                          window.dispatchEvent(
+                            new CustomEvent('via-upload-source', {
+                              detail: { nodeId: id, file },
+                            }),
+                          );
+                          event.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
           ) : null}
         </section>
       ) : null}

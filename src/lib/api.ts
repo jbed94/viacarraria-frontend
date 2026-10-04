@@ -1,6 +1,11 @@
 import type {
+  AdAnalyticsSummary,
+  AdConfig,
+  AdContextTag,
+  AdContextTagStats,
+  AdTelemetryPayload,
+  AdTelemetryStatus,
   AdminBatchResult,
-  AdminBillingEvent,
   AdminGraph,
   AdminGraphDetails,
   AdminOverviewStats,
@@ -9,30 +14,44 @@ import type {
   AdminSystemStatus,
   AdminUser,
   AdminUserDetails,
+  AuditArchivePreviewResponse,
+  AuditLogArchive,
+  CancelCrawlResponse,
+  CrawlDepth,
+  CrawlDirection,
+  CrawlResponse,
+  CrawlSettings,
+  CreateAdContextTagDto,
+  GetAuditArchivesResponse,
+  GetAuditLogsResponse,
   Graph,
   GraphArchiveItem,
   GraphEdge,
   GraphSummary,
+  GraphVocabularyItem,
+  HypothesisGroupDto,
   Identity,
   LimitsSummary,
   NotificationItem,
   NotificationListResponse,
+  PlanDefinition,
   PublicGraphItem,
+  PublicSystemStatus,
   QueryHistory,
+  ResolvedGraphAdContext,
   RetentionAuditStats,
   RetentionRunResponse,
   SearchResponse,
   SearchScope,
   SearchSensitivity,
+  SearchSuggestionsResponse,
   Source,
   StorageProxyStatus,
   SubscriptionTier,
-  PublicSystemStatus,
+  TelemetryDateRange,
   UpdateAdminSystemSettingsDto,
-  GetAuditLogsResponse,
-  AuditLogArchive,
-  GetAuditArchivesResponse,
-  AuditArchivePreviewResponse,
+  UpdateAdContextTagDto,
+  UpdatePlanDto,
 } from '../types/api';
 
 const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api';
@@ -86,11 +105,7 @@ type AuthResponse = {
 
 function identityFromUser(user: AuthUser): Identity {
   const isGuest = user.isAnonymous === true;
-  const tier = isGuest
-    ? 'ANONYMOUS'
-    : user.subscriptionTier === 'PRO'
-      ? 'PRO'
-      : 'FREE';
+  const tier: SubscriptionTier = isGuest ? 'ANONYMOUS' : 'REGISTERED';
   return {
     userId: user.id,
     email: user.email,
@@ -961,7 +976,6 @@ export const api = {
     graphId: string,
     query: string,
     selectedNodeIds: string[],
-    extendedSearch = false,
     sensitivity?: SearchSensitivity,
     scope?: SearchScope,
   ) =>
@@ -971,11 +985,91 @@ export const api = {
         graphId,
         query,
         selectedNodeIds,
-        extendedSearch,
         ...(sensitivity ? { sensitivity } : {}),
         ...(scope ? { scope } : {}),
       }),
     }),
+  crawl: (
+    graphId: string,
+    query: string,
+    startingNodeIds: string[],
+    direction?: CrawlDirection,
+    crawlDepth?: CrawlDepth,
+    sensitivity?: SearchSensitivity,
+    comparativeMode?: boolean,
+    groupBStartingNodeIds?: string[],
+    hypothesisGroups?: HypothesisGroupDto[],
+    jobId?: string,
+    options?: { signal?: AbortSignal },
+    crawlSettings?: CrawlSettings,
+  ) =>
+    request<CrawlResponse>('/search/crawl', {
+      method: 'POST',
+      signal: options?.signal,
+      body: JSON.stringify({
+        graphId,
+        query,
+        startingNodeIds,
+        ...(jobId ? { jobId } : {}),
+        ...(direction ? { direction } : {}),
+        ...(crawlDepth ? { crawlDepth } : {}),
+        ...(sensitivity ? { sensitivity } : {}),
+        ...(comparativeMode ? { comparativeMode } : {}),
+        ...(groupBStartingNodeIds?.length ? { groupBStartingNodeIds } : {}),
+        ...(hypothesisGroups?.length ? { hypothesisGroups } : {}),
+        ...(crawlSettings ?? {}),
+      }),
+    }),
+  cancelCrawl: (jobId: string) =>
+    request<CancelCrawlResponse>(`/search/crawl/${jobId}/cancel`, {
+      method: 'POST',
+    }),
+  getSuggestions: (
+    graphId: string,
+    params?: {
+      nodeIds?: string[];
+      query?: string;
+      limit?: number;
+      signal?: AbortSignal;
+    },
+  ) => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('graphId', graphId);
+    if (params?.nodeIds && params.nodeIds.length > 0) {
+      searchParams.set('nodeIds', params.nodeIds.join(','));
+    }
+    if (params?.query) {
+      searchParams.set('query', params.query);
+    }
+    if (params?.limit) {
+      searchParams.set('limit', String(params.limit));
+    }
+    return request<SearchSuggestionsResponse>(
+      `/search/suggestions?${searchParams.toString()}`,
+      {
+        signal: params?.signal,
+      },
+    );
+  },
+  getVocabulary: (
+    graphId: string,
+    params?: {
+      nodeIds?: string[];
+      signal?: AbortSignal;
+    },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.nodeIds && params.nodeIds.length > 0) {
+      searchParams.set('nodeIds', params.nodeIds.join(','));
+    }
+    const queryStr = searchParams.toString();
+    return request<GraphVocabularyItem[]>(
+      `/graphs/${graphId}/vocabulary${queryStr ? `?${queryStr}` : ''}`,
+      {
+        signal: params?.signal,
+      },
+    );
+  },
   history: () => request<QueryHistory[]>('/queries'),
   updateQuery: (id: string, values: { title?: string; isPinned?: boolean }) =>
     request<QueryHistory>(`/queries/${id}`, {
@@ -1297,15 +1391,38 @@ export const api = {
   },
   deleteSource: (id: string) =>
     request<void>(`/sources/${id}`, { method: 'DELETE' }),
-  subscription: () =>
-    request<{ tier: SubscriptionTier; expiresAt: string | null }>(
-      '/billing/subscription',
-    ),
-  checkout: () =>
-    request<{
-      checkoutUrl: string | null;
-      subscription: { tier: SubscriptionTier };
-    }>('/billing/checkout', { method: 'POST', body: '{}' }),
+  createNote: (
+    graphId: string,
+    nodeId: string,
+    title: string,
+    content: string,
+  ) =>
+    request<Source>('/sources/note', {
+      method: 'POST',
+      body: JSON.stringify({ graphId, nodeId, title, content }),
+    }),
+  updateSource: (id: string, payload: { name?: string; content?: string }) =>
+    request<Source>(`/sources/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  ads: {
+    sendTelemetry: (payload: AdTelemetryPayload) =>
+      request<{ success: boolean }>('/plans/ads/telemetry', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getAnalytics: (range?: TelemetryDateRange) =>
+      request<AdAnalyticsSummary>(
+        range ? `/plans/ads/analytics?range=${range}` : '/plans/ads/analytics',
+      ),
+    getConfig: () => request<AdConfig>('/plans/ads/config'),
+    getContext: (graphId: string) =>
+      request<ResolvedGraphAdContext>(
+        `/plans/ads/context?graphId=${encodeURIComponent(graphId)}`,
+      ),
+  },
   profile: () => request<Identity & { preferredLanguage: string }>('/profile'),
   updateProfile: (username: string, preferredLanguage: string) =>
     request<Identity & { preferredLanguage: string }>('/profile', {
@@ -1364,12 +1481,20 @@ export const api = {
       limit?: number;
       search?: string;
       tier?: string;
+      storageFilter?: string;
+      activityFilter?: string;
     }) => {
       const query = new URLSearchParams();
       if (params?.page) query.set('page', params.page.toString());
       if (params?.limit) query.set('limit', params.limit.toString());
       if (params?.search) query.set('search', params.search);
       if (params?.tier) query.set('tier', params.tier);
+      if (params?.storageFilter && params.storageFilter !== 'ALL') {
+        query.set('storageFilter', params.storageFilter);
+      }
+      if (params?.activityFilter && params.activityFilter !== 'ALL') {
+        query.set('activityFilter', params.activityFilter);
+      }
       const qs = query.toString();
       return request<{
         users: AdminUser[];
@@ -1455,49 +1580,25 @@ export const api = {
         `/admin/retention/archives/${graphId}`,
         { method: 'DELETE' },
       ),
-    subscriptionEvents: (params?: { page?: number; limit?: number }) => {
-      const query = new URLSearchParams();
-      if (params?.page) query.set('page', params.page.toString());
-      if (params?.limit) query.set('limit', params.limit.toString());
-      const qs = query.toString();
-      return request<{
-        events: AdminBillingEvent[];
-        pagination: AdminPagination<any>['pagination'];
-      }>(`/admin/subscriptions/events${qs ? `?${qs}` : ''}`);
-    },
-    grantSubscription: (
-      userId: string,
-      tier: 'PRO' = 'PRO',
-      durationDays = 30,
-    ) =>
-      request<AdminUserDetails>('/admin/subscriptions/grant', {
-        method: 'POST',
-        body: JSON.stringify({ userId, tier, durationDays }),
-      }),
-    revokeSubscription: (userId: string) =>
-      request<AdminUserDetails>('/admin/subscriptions/revoke', {
-        method: 'POST',
-        body: JSON.stringify({ userId }),
-      }),
     exportUsers: (params?: {
       format?: 'csv' | 'json';
       search?: string;
       tier?: string;
+      storageFilter?: string;
+      activityFilter?: string;
     }) => {
       const query = new URLSearchParams();
       if (params?.format) query.set('format', params.format);
       if (params?.search) query.set('search', params.search);
       if (params?.tier) query.set('tier', params.tier);
+      if (params?.storageFilter && params.storageFilter !== 'ALL') {
+        query.set('storageFilter', params.storageFilter);
+      }
+      if (params?.activityFilter && params.activityFilter !== 'ALL') {
+        query.set('activityFilter', params.activityFilter);
+      }
       const qs = query.toString();
       return downloadBlob(`/admin/users/export${qs ? `?${qs}` : ''}`);
-    },
-    exportSubscriptionEvents: (params?: { format?: 'csv' | 'json' }) => {
-      const query = new URLSearchParams();
-      if (params?.format) query.set('format', params.format);
-      const qs = query.toString();
-      return downloadBlob(
-        `/admin/subscriptions/events/export${qs ? `?${qs}` : ''}`,
-      );
     },
     batchUsers: (data: {
       userIds: string[];
@@ -1573,6 +1674,86 @@ export const api = {
         `/admin/audit-logs/archives/${id}/preview${qs ? `?${qs}` : ''}`,
       );
     },
+    getPlans: () => request<PlanDefinition[]>('/admin/plans'),
+    getPlan: (tier: string) => request<PlanDefinition>(`/admin/plans/${tier}`),
+    updatePlan: (tier: string, data: UpdatePlanDto) =>
+      request<PlanDefinition>(`/admin/plans/${tier}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    updateUserStorageLimit: (userId: string, storageLimitMb: number | null) =>
+      request<{ id: string; storageLimitMb: number | null }>(
+        `/admin/users/${userId}/storage-limit`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ storageLimitMb }),
+        },
+      ),
+    getAdAnalytics: (range?: TelemetryDateRange) =>
+      request<AdAnalyticsSummary>(
+        range ? `/admin/ads/analytics?range=${range}` : '/admin/ads/analytics',
+      ),
+    exportAdTelemetry: async (range?: TelemetryDateRange) => {
+      const r = range || 'all';
+      const adminKey = getAdminKey();
+      const headers: Record<string, string> = {};
+      if (adminKey) {
+        headers['x-admin-key'] = adminKey;
+      }
+      const res = await fetch(
+        `${apiUrl}/admin/ads/telemetry/export?range=${r}`,
+        {
+          headers,
+          credentials: 'include',
+        },
+      );
+      if (!res.ok) {
+        throw new Error('Failed to export ad telemetry');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ad-telemetry-${r}-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    },
+    triggerAdRollup: (targetDate?: string) =>
+      request<{ success: boolean; rowsRolledUp: number }>(
+        '/admin/ads/telemetry/rollup',
+        {
+          method: 'POST',
+          body: JSON.stringify({ targetDate }),
+        },
+      ),
+    purgeOldAdTelemetry: (retentionDays?: number) =>
+      request<{ success: boolean; purgedCount: number; retentionDays: number }>(
+        '/admin/ads/telemetry/purge',
+        {
+          method: 'POST',
+          body: JSON.stringify({ retentionDays }),
+        },
+      ),
+    getAdTelemetryStatus: () =>
+      request<AdTelemetryStatus>('/admin/ads/telemetry/status'),
+    getAdTags: () => request<AdContextTag[]>('/admin/ads/tags'),
+    getAdTagStats: () => request<AdContextTagStats>('/admin/ads/tags/stats'),
+    createAdTag: (data: CreateAdContextTagDto) =>
+      request<AdContextTag>('/admin/ads/tags', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateAdTag: (id: string, data: UpdateAdContextTagDto) =>
+      request<AdContextTag>(`/admin/ads/tags/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    deleteAdTag: (id: string) =>
+      request<{ success: boolean; id: string }>(`/admin/ads/tags/${id}`, {
+        method: 'DELETE',
+      }),
   },
   system: {
     checkStatus: async (): Promise<PublicSystemStatus> => {

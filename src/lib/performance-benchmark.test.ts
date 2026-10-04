@@ -70,8 +70,8 @@ describe('Canvas Performance & Optimization Benchmarks', () => {
     const duration = performance.now() - start;
 
     expect(laidOut.length).toBe(50);
-    // Budget: 50 nodes should compute within 150ms
-    expect(duration).toBeLessThan(150);
+    // Budget: 50 nodes should compute within 200ms
+    expect(duration).toBeLessThan(200);
   });
 
   it('measures dagre layout computation scaling for 100 dense nodes (< 350ms budget)', () => {

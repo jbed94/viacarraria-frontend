@@ -16,6 +16,7 @@ import { useState } from 'react';
 
 import { ApiError, api } from '../../lib/api';
 import type { Identity } from '../../types/api';
+import { ViaCarrariaIcon } from '../brand';
 import { DialogFrame } from './dialog-frame';
 
 type AuthDialogProps = {
@@ -98,7 +99,7 @@ export function AuthDialog({
       <div className="auth-dialog-body">
         <div className="auth-intro-lockup">
           <div className="auth-brand-badge" aria-hidden="true">
-            <span className="auth-brand-mark">VC</span>
+            <ViaCarrariaIcon size={26} variant="bare" interactive />
           </div>
           <p className="auth-subtitle">
             {mode === 'login'

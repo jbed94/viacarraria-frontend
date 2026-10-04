@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useEscapeKey } from './use-escape-key';
 import { useGraphStore } from '../store/graph-store';
+import { useEscapeKey } from './use-escape-key';
 
 describe('useEscapeKey', () => {
   afterEach(() => {
@@ -67,5 +67,39 @@ describe('useEscapeKey', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onEscapeResults).not.toHaveBeenCalled();
     expect(useGraphStore.getState().expandedNodeIds).toEqual([]);
+  });
+
+  it('clears selectedNodeIds and resets mode to IDLE when in CONTEXT_SELECTION', () => {
+    useGraphStore.setState({
+      mode: 'CONTEXT_SELECTION',
+      selectedNodeIds: ['node-1', 'node-2'],
+      expandedNodeIds: [],
+    });
+
+    renderHook(() =>
+      useEscapeKey({ hasResults: false, onEscapeResults: vi.fn() }),
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useGraphStore.getState().selectedNodeIds).toEqual([]);
+    expect(useGraphStore.getState().mode).toBe('IDLE');
+  });
+
+  it('clears crawlStartingNodeIds when in CRAWL_SELECTION while preserving crawl mode', () => {
+    useGraphStore.setState({
+      queryType: 'crawl',
+      mode: 'CRAWL_SELECTION',
+      crawlStartingNodeIds: ['node-1'],
+      expandedNodeIds: [],
+    });
+
+    renderHook(() =>
+      useEscapeKey({ hasResults: false, onEscapeResults: vi.fn() }),
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([]);
+    expect(useGraphStore.getState().queryType).toBe('crawl');
+    expect(useGraphStore.getState().mode).toBe('CRAWL_SELECTION');
   });
 });

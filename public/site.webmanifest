@@ -1,0 +1,29 @@
+{
+  "name": "Via Carraria — Interactive Knowledge Canvas",
+  "short_name": "Via Carraria",
+  "description": "Interactive visual knowledge platform. Converts subjects into Left-to-Right Directed Acyclic Graphs (DAGs) powered by Spatial GraphRAG search.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#11110f",
+  "theme_color": "#11110f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "type": "image/x-icon",
+      "sizes": "16x16 32x32"
+    }
+  ]
+}

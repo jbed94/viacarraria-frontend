@@ -1,4 +1,20 @@
-export type SubscriptionTier = 'ANONYMOUS' | 'FREE' | 'PRO';
+export type SubscriptionTier = 'ANONYMOUS' | 'REGISTERED';
+
+export type StorageStatus = {
+  usedBytes: number;
+  limitBytes: number;
+  limitMb: number;
+  usedPercentage: number;
+  exceeded: boolean;
+};
+
+export type QueueOccupation = 'low' | 'mid' | 'high';
+
+export type CrawlEntitlements = {
+  allowedDepths: string[];
+  maxStartingPoints: number | null;
+  allowComparative: boolean;
+};
 
 export type PublicSystemStatus = {
   status: string;
@@ -12,17 +28,109 @@ export type LimitStatus = {
   exceeded: boolean;
 };
 
+export type CreditLimitInfo = {
+  balance: number;
+  renewableCredits: number;
+  renewablePeriodDays: number;
+  nextRenewalAt: string | null;
+  userMultiplier: number;
+  planMultiplier: number;
+  planVersion: number;
+  activeTermsName: string;
+  adsEnabled: boolean;
+};
+
+export type PlanLimits = {
+  maxNodes: number;
+  maxSourcesPerGraph: number;
+  maxSourceSizeBytes: number;
+  allowPrivateGraphs: boolean;
+  extendedContext: boolean;
+  maxConcurrentUploads?: number;
+};
+
+export type PlanCostConfig = {
+  queryBaseCost: number;
+  crawlBaseCost: number;
+  crawlStepCost: number;
+  sourceBaseCost: number;
+  sourceChunkMultiplier: number;
+};
+
+export type PlanGrandfatheringPolicy =
+  | 'GRANDFATHER_EXISTING'
+  | 'FAVORABLE_UPGRADE'
+  | 'RENEWAL_MIGRATION';
+
+export type PlanDefinition = {
+  tier: SubscriptionTier;
+  version: number;
+  name: string;
+  description?: string | null;
+  renewableCredits: number;
+  renewalPeriodDays: number;
+  priceUsd: number;
+  adsEnabled: boolean;
+  planMultiplier: number;
+  limits: PlanLimits;
+  costConfig: PlanCostConfig;
+  grandfatheringPolicy: PlanGrandfatheringPolicy;
+  effectiveAt: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type UpdatePlanDto = {
+  name?: string;
+  description?: string;
+  renewableCredits?: number;
+  renewalPeriodDays?: number;
+  priceUsd?: number;
+  adsEnabled?: boolean;
+  planMultiplier?: number;
+  limits?: Partial<PlanLimits>;
+  costConfig?: Partial<PlanCostConfig>;
+  grandfatheringPolicy?: PlanGrandfatheringPolicy;
+};
+
+export type CreditPack = {
+  id: string;
+  name: string;
+  credits: number;
+  priceUsd: number;
+  description?: string;
+  popular?: boolean;
+};
+
+export type CreditTransaction = {
+  id: string;
+  userId: string;
+  amount: number;
+  balanceAfter: number;
+  reason?: string;
+  transactionType?: string;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type LimitsSummary = {
   tier: SubscriptionTier;
-  graphs: LimitStatus;
-  privateGraphs: LimitStatus;
-  queries: LimitStatus;
-  uploads: LimitStatus;
-  selectedNodes: LimitStatus;
-  nodesPerGraph: LimitStatus;
-  sourcesPerNode: LimitStatus;
-  sourceSizeBytes: LimitStatus;
-  extendedContext: LimitStatus;
+  storage: StorageStatus;
+  queueOccupation: QueueOccupation;
+  canCreateGraphs: boolean;
+  crawl: CrawlEntitlements;
+  // Deprecated backwards-compatible fields
+  graphs?: LimitStatus;
+  privateGraphs?: LimitStatus;
+  queries?: LimitStatus;
+  uploads?: LimitStatus;
+  selectedNodes?: LimitStatus;
+  nodesPerGraph?: LimitStatus;
+  sourcesPerNode?: LimitStatus;
+  sourceSizeBytes?: LimitStatus;
+  extendedContext?: LimitStatus;
+  credits?: CreditLimitInfo;
 };
 
 export type Identity = {
@@ -32,6 +140,9 @@ export type Identity = {
   isGuest: boolean;
   tier: SubscriptionTier;
   role?: 'admin' | 'user';
+  storageLimitMb?: number | null;
+  creditsBalance?: number;
+  userMultiplier?: number;
 };
 
 export type GraphPermission = 'OWNER' | 'VIEWER';
@@ -139,25 +250,187 @@ export type SearchChunk = {
   pageNum: number;
   coordinates?: number[];
   elementType?: string;
+  imageAssetUrl?: string;
+  lqip?: string;
   score: number;
   rerankScore?: number;
   kind?: 'MATCH' | 'EXTENDED';
   extendedContext?: SearchChunk[];
+  chunkId?: string;
 };
 
 export type SearchSensitivity = 'low' | 'medium' | 'high';
 export type SearchScope = 'narrow' | 'normal' | 'wide';
 
+export type CrawlDirection = 'forward' | 'backward' | 'both';
+export type CrawlDepth = 'shallow' | 'default' | 'deep' | 'unlimited';
+export type CrawlMatchType = 'seed' | 'dig' | 'link' | 'jump';
+
+export type CrawlSummaryStats = {
+  digsCount: number;
+  linksCount: number;
+  jumpsCount: number;
+  seedTitle: string;
+};
+
+export type CrawlSettings = {
+  enableDigs?: boolean;
+  maxDigsPerTopic?: number;
+  enableLinks?: boolean;
+  maxLinks?: number;
+  enableJumps?: boolean;
+  maxJumps?: number;
+  maxCandidatesPerStep?: number;
+  minScore?: number;
+  maxDepth?: number;
+};
+
+export type HypothesisGroupDto = {
+  id: string;
+  name: string;
+  nodeIds: string[];
+  color?: string;
+};
+
+export type ComparativeGroupSummary = {
+  id: string;
+  name: string;
+  count: number;
+  color?: string;
+  entropy?: number;
+  entropyDelta?: number;
+  avgScore?: number;
+};
+
+export type CrawlNode = {
+  id: string;
+  level: number;
+  matchType?: CrawlMatchType;
+  nodeId: string;
+  nodeTitle: string;
+  chunk: SearchChunk;
+  score: number;
+  similarityScore?: number;
+  rerankScore?: number;
+  parentCrawlNodeId?: string;
+  stepDescription?: string;
+  groupOrigin?: 'groupA' | 'groupB' | 'intersection' | string;
+  reachedGroupIds?: string[];
+  branchEntropy?: number;
+  isPruned?: boolean;
+};
+
+export type CrawlEdge = {
+  id: string;
+  source: string;
+  target: string;
+  level: number;
+  matchType?: CrawlMatchType;
+  direction: CrawlDirection;
+  similarityScore?: number;
+  sharedKeywords?: string[];
+};
+
+export type CrawlProgressPayload = {
+  graphId: string;
+  level: number;
+  status: string;
+  message: string;
+  matchesCount?: number;
+  totalMatches?: number;
+  currentNodes?: CrawlNode[];
+  currentEdges?: CrawlEdge[];
+  stats?: CrawlSummaryStats;
+  maxBranchEntropy?: number;
+  prunedBranchesCount?: number;
+  averageBranchEntropy?: number;
+};
+
+export type CrawlResponse = {
+  queryId: string;
+  jobId?: string;
+  queryType: 'crawl';
+  queryText: string;
+  startingNodeIds: string[];
+  crawlDepth: CrawlDepth;
+  direction: CrawlDirection;
+  sensitivity: SearchSensitivity;
+  nodes: CrawlNode[];
+  edges: CrawlEdge[];
+  maxLevelReached: number;
+  totalMatches: number;
+  matchedNodeIds: string[];
+  remaining: number;
+  creditsCost?: number;
+  searchSpaceMultiplier?: number;
+  summary?: string;
+  stats?: CrawlSummaryStats;
+  maxBranchEntropy?: number;
+  prunedBranchesCount?: number;
+  comparative?: {
+    isComparative: boolean;
+    groupA?: string;
+    groupB?: string;
+    groupACount: number;
+    groupBCount: number;
+    intersectionCount: number;
+    intersectionNodeTitles: string[];
+    groups?: ComparativeGroupSummary[];
+  };
+};
+
+export type CancelCrawlResponse = {
+  jobId: string;
+  cancelled: boolean;
+  message: string;
+};
+
 export type SearchResponse = {
   queryId: string;
+  queryType?: 'simple' | 'crawl';
+  query?: string;
+  expandedKeywords?: string[];
   leadAnswer?: LeadAnswer;
   results: Array<{ nodeId: string; matchCount: number; chunks: SearchChunk[] }>;
   matchedNodeIds: string[];
   remaining: number;
-  extendedSearch: boolean;
-  extendedContextCount: number;
+  creditsCost?: number;
+  searchSpaceMultiplier?: number;
+  extendedSearch?: boolean;
+  extendedContextCount?: number;
   sensitivity?: SearchSensitivity;
   scope?: SearchScope;
+};
+
+export type GraphVocabularyItem = {
+  term: string;
+  normalized: string;
+  nodeIds: string[];
+  weight: number;
+  sourceType:
+    | 'node_title'
+    | 'heading'
+    | 'bold'
+    | 'acronym'
+    | 'keyphrase'
+    | string;
+};
+
+export type SearchSuggestionVocabulary = {
+  term: string;
+  nodeIds: string[];
+  sourceType?: string;
+};
+
+export type SearchSuggestionSynonym = {
+  term: string;
+  expansions: string[];
+};
+
+export type SearchSuggestionsResponse = {
+  querySuggestions: string[];
+  vocabularySuggestions: SearchSuggestionVocabulary[];
+  synonymSuggestions: SearchSuggestionSynonym[];
 };
 
 export type QueryHistory = {
@@ -165,9 +438,14 @@ export type QueryHistory = {
   graphId: string;
   queryText: string;
   selectedNodeIds: string[];
-  results: SearchResponse['results'] | null;
+  results:
+    | SearchResponse['results']
+    | CrawlResponse
+    | (SearchResponse & { queryType?: string })
+    | null;
   title: string | null;
   isPinned: boolean;
+  creditsCost?: number;
   createdAt: string;
 };
 
@@ -254,6 +532,10 @@ export type AdminUser = {
   isAnonymous: boolean;
   subscriptionTier: SubscriptionTier;
   subscriptionExpiresAt: string | null;
+  storageLimitMb?: number | null;
+  usedStorageBytes?: number;
+  creditsBalance?: number;
+  userMultiplier?: number;
   preferredLanguage: string;
   createdAt: string;
   updatedAt: string;
@@ -276,8 +558,9 @@ export type AdminUserDetails = {
     graphId: string;
     queryText: string;
     createdAt: string;
+    creditsCost?: number;
   }>;
-  billingEvents: Array<{
+  billingEvents?: Array<{
     id: string;
     provider: string;
     eventType: string;
@@ -316,12 +599,23 @@ export type AdminGraphDetails = AdminGraph & {
 export type AdminOverviewStats = {
   users: {
     total: number;
-    pro: number;
-    free: number;
+    registered: number;
     anonymous: number;
     newLast30Days: number;
+    pro?: number;
+    free?: number;
   };
-  revenue: {
+  similarityQueue: {
+    occupation: QueueOccupation | string;
+    anonymousThroughputPerMinute: number;
+    registeredThroughputPerMinute: number;
+  };
+  storageQuota: {
+    defaultStorageLimitMb: number;
+    totalStorageBytes: number;
+    totalSources: number;
+  };
+  revenue?: {
     monthlyRecurringRevenue: number;
     totalRevenue?: number;
     proPriceUsd: number;
@@ -332,12 +626,6 @@ export type AdminOverviewStats = {
       eventType: string;
       provider: string;
       createdAt: string;
-    }>;
-    monthlyDistribution?: Array<{
-      month: string;
-      label: string;
-      revenue: number;
-      eventsCount: number;
     }>;
   };
   requests: {
@@ -420,15 +708,33 @@ export type MaintenanceExemptions = {
   exemptRoles?: string[];
 };
 
+export type SimilarityQuotaConfig = {
+  anonymousThroughputPerMinute: number;
+  registeredThroughputPerMinute: number;
+};
+
+export type StorageConfig = {
+  defaultStorageLimitMb: number;
+};
+
+export type AdConfig = {
+  effectiveEcpm: number;
+  canvasAdDensity: number;
+  maxCanvasAds: number;
+};
+
 export type AdminSystemSettings = {
   retentionDays: number;
   retentionGraceDays: number;
-  freeTierLimits: {
+  similarityQuota: SimilarityQuotaConfig;
+  storageConfig: StorageConfig;
+  adConfig?: AdConfig;
+  freeTierLimits?: {
     maxNodes: number;
     maxSourcesPerGraph: number;
     maxSourceSizeBytes: number;
   };
-  proTierLimits: {
+  proTierLimits?: {
     maxNodes: number;
     maxSourcesPerGraph: number;
     maxSourceSizeBytes: number;
@@ -440,17 +746,30 @@ export type AdminSystemSettings = {
   };
   maintenanceMode: boolean;
   maintenanceExemptions?: MaintenanceExemptions;
+  synonymsConfig?: Record<string, string[]>;
   updatedAt: string;
 };
 
 export type UpdateAdminSystemSettingsDto = {
   retentionDays?: number;
   retentionGraceDays?: number;
-  freeTierLimits?: Partial<AdminSystemSettings['freeTierLimits']>;
-  proTierLimits?: Partial<AdminSystemSettings['proTierLimits']>;
+  similarityQuota?: Partial<SimilarityQuotaConfig>;
+  storageConfig?: Partial<StorageConfig>;
+  adConfig?: Partial<AdConfig>;
+  freeTierLimits?: Partial<{
+    maxNodes: number;
+    maxSourcesPerGraph: number;
+    maxSourceSizeBytes: number;
+  }>;
+  proTierLimits?: Partial<{
+    maxNodes: number;
+    maxSourcesPerGraph: number;
+    maxSourceSizeBytes: number;
+  }>;
   rateLimits?: Partial<AdminSystemSettings['rateLimits']>;
   maintenanceMode?: boolean;
   maintenanceExemptions?: Partial<MaintenanceExemptions>;
+  synonymsConfig?: Record<string, string[]>;
 };
 
 export type AdminAuditEvent = {
@@ -497,4 +816,150 @@ export type AuditArchivePreviewResponse = {
   total: number;
   limit: number;
   offset: number;
+};
+
+export type AutoRefillSettings = {
+  enabled: boolean;
+  threshold: number;
+  packId: string;
+  pack?: {
+    id: string;
+    name: string;
+    credits: number;
+    priceUsd: number;
+  };
+  monthlyLimit?: number;
+  refillsThisMonth?: number;
+  notifyLowBalance?: boolean;
+  notifyAutoRefill?: boolean;
+  notifyChannel?: 'IN_APP' | 'EMAIL' | 'ALL';
+};
+
+export type UpdateAutoRefillDto = {
+  enabled: boolean;
+  threshold?: number;
+  packId?: string;
+  monthlyLimit?: number;
+  notifyLowBalance?: boolean;
+  notifyAutoRefill?: boolean;
+  notifyChannel?: 'IN_APP' | 'EMAIL' | 'ALL';
+};
+
+export type AdTelemetryPayload = {
+  eventType: 'impression' | 'culled' | 'refresh' | 'viewable_pulse' | 'consent';
+  format?:
+    | 'banner'
+    | 'card'
+    | 'sidebar'
+    | 'canvas_node'
+    | 'rectangle'
+    | 'horizontal'
+    | 'vertical'
+    | 'fluid'
+    | string;
+  durationSeconds?: number;
+  consent?: 'granted' | 'essential_only' | 'denied' | 'pending' | string;
+  slotId?: string;
+  graphId?: string;
+  tags?: string[];
+};
+
+export type AdGraphRevenueItem = {
+  graphId: string;
+  graphName: string;
+  isPublic: boolean;
+  impressions: number;
+  activeViewableSeconds: number;
+  estimatedRevenueUsd: number;
+};
+
+export type AdAnalyticsSummary = {
+  totalImpressions: number;
+  totalCulled: number;
+  totalRefreshes: number;
+  averageViewabilitySeconds: number;
+  totalActiveViewableSeconds: number;
+  consentBreakdown: {
+    personalized: number;
+    contextual: number;
+    declined: number;
+  };
+  estimatedRevenueUsd: number;
+  effectiveEcpm: number;
+  gpuSavingsPercentage: number;
+  range?: string;
+  topGraphs?: AdGraphRevenueItem[];
+};
+
+export type PaymentMethodDetails = {
+  hasPaymentMethod: boolean;
+  customerId: string | null;
+  paymentMethodId: string | null;
+  brand?: string;
+  last4?: string;
+};
+
+export type SetupIntentResponse = {
+  clientSecret: string;
+  customerId: string;
+  setupIntentId: string;
+};
+
+export type TelemetryDateRange = '7d' | '30d' | '90d' | 'all';
+
+export type AdTelemetryStatus = {
+  totalEventsCount: number;
+  totalRollupsCount: number;
+  oldestEventDate: string | null;
+  newestEventDate: string | null;
+  lastRollupDate: string | null;
+  retentionDays: number;
+  autoRollupEnabled: boolean;
+  scheduleIntervalHours: number;
+};
+
+export type AdContextTag = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  isActive: boolean;
+  matchCount: number;
+  sendCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdContextTagStats = {
+  totalTags: number;
+  activeTags: number;
+  totalMatches: number;
+  totalImpressionsSent: number;
+  topMatchedTags: Array<{ slug: string; name: string; matchCount: number }>;
+  topImpressionTags: Array<{ slug: string; name: string; sendCount: number }>;
+};
+
+export type ResolvedGraphAdContext = {
+  graphId: string;
+  tags: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    weight: number;
+  }>;
+  cached: boolean;
+};
+
+export type CreateAdContextTagDto = {
+  name: string;
+  slug?: string;
+  description: string;
+  isActive?: boolean;
+};
+
+export type UpdateAdContextTagDto = {
+  name?: string;
+  slug?: string;
+  description?: string;
+  isActive?: boolean;
 };

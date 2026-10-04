@@ -4,21 +4,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Code,
+  Columns2,
   Copy,
-  Crosshair,
   Download,
+  Edit3,
   Eye,
   FileText,
+  Link2,
   LoaderCircle,
+  Save,
   Sparkles,
-  Table,
+  Unlink,
 } from 'lucide-react';
 import { marked } from 'marked';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../../lib/api';
 import { katexExtension } from '../../lib/katex-markdown';
+import { useGraphStore } from '../../store/graph-store';
 import type { SearchChunk, Source } from '../../types/api';
 import { DialogFrame } from './dialog-frame';
 
@@ -30,6 +34,7 @@ type SourceViewerDialogProps = {
   matches: SearchChunk[];
   focusedMatch?: SearchChunk;
   onOpenChange: (open: boolean) => void;
+  canEdit?: boolean;
 };
 
 export function isPdfSource(
@@ -46,32 +51,127 @@ export function isPdfSource(
 export const MIN_SOURCE_PANEL_WIDTH = 480;
 export const MIN_SOURCE_PANEL_HEIGHT = 380;
 
+export type ViewMode = 'preview' | 'split' | 'edit' | 'raw';
+export type AutosaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
+
 export function SourceViewerDialog({
   sourceId,
   onOpenChange,
   matches,
   focusedMatch,
+  canEdit,
 }: SourceViewerDialogProps) {
+  const storeGraph = useGraphStore((state) => state.graph);
+  const hasWriteAccess =
+    canEdit !== undefined
+      ? canEdit
+      : storeGraph !== undefined
+        ? Boolean(storeGraph.canEdit ?? storeGraph.isOwned)
+        : true;
   const [source, setSource] = useState<Source>();
   const [isLoading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<'preview' | 'source' | 'pdf'>(
-    'preview',
-  );
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [activeMatchIndex, setActiveMatchIndex] = useState<number>(0);
-  const [showTableInspector, setShowTableInspector] = useState(true);
-  const [selectedColIndex, setSelectedColIndex] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('idle');
   const [panelSize, setPanelSize] = useState<{
     width: number;
     height: number;
   } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const [isSyncScrollEnabled, setIsSyncScrollEnabled] = useState(true);
   const hitRef = useRef<HTMLElement>(null);
-  const content = source?.content ?? focusedMatch?.context ?? '';
-  const highlightRanges = getHighlightRanges(content, matches, focusedMatch);
-  const focusKey = `${content.length}:${focusedMatch?.sourceId ?? ''}:${focusedMatch?.startChar ?? ''}:${focusedMatch?.endChar ?? ''}:${viewMode}`;
-  const isPdf = isPdfSource(source, focusedMatch);
+  const editorTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const isScrollingSyncRef = useRef<boolean>(false);
+
+  const handleEditorScroll = () => {
+    if (!isSyncScrollEnabled || isScrollingSyncRef.current) return;
+    const editor = editorTextareaRef.current;
+    const preview = previewScrollRef.current;
+    if (!editor || !preview) return;
+
+    const editorScrollable = editor.scrollHeight - editor.clientHeight;
+    const previewScrollable = preview.scrollHeight - preview.clientHeight;
+    if (editorScrollable <= 0 || previewScrollable <= 0) return;
+
+    const ratio = editor.scrollTop / editorScrollable;
+    isScrollingSyncRef.current = true;
+    preview.scrollTop = ratio * previewScrollable;
+    requestAnimationFrame(() => {
+      isScrollingSyncRef.current = false;
+    });
+  };
+
+  const handlePreviewScroll = () => {
+    if (!isSyncScrollEnabled || isScrollingSyncRef.current) return;
+    const editor = editorTextareaRef.current;
+    const preview = previewScrollRef.current;
+    if (!editor || !preview) return;
+
+    const editorScrollable = editor.scrollHeight - editor.clientHeight;
+    const previewScrollable = preview.scrollHeight - preview.clientHeight;
+    if (editorScrollable <= 0 || previewScrollable <= 0) return;
+
+    const ratio = preview.scrollTop / previewScrollable;
+    isScrollingSyncRef.current = true;
+    editor.scrollTop = ratio * editorScrollable;
+    requestAnimationFrame(() => {
+      isScrollingSyncRef.current = false;
+    });
+  };
+
+  const editNameRef = useRef(editName);
+  const editContentRef = useRef(editContent);
+  const sourceRef = useRef(source);
+  const isSavingRef = useRef(isSaving);
+
+  useEffect(() => {
+    editNameRef.current = editName;
+  }, [editName]);
+  useEffect(() => {
+    editContentRef.current = editContent;
+  }, [editContent]);
+  useEffect(() => {
+    sourceRef.current = source;
+  }, [source]);
+  useEffect(() => {
+    isSavingRef.current = isSaving;
+  }, [isSaving]);
+
+  const isDirty = useMemo(() => {
+    if (!source) return false;
+    return editName !== source.name || editContent !== (source.content ?? '');
+  }, [source, editName, editContent]);
+
+  const effectiveMatches = useMemo(() => {
+    if (!focusedMatch) return matches;
+    if (
+      matches.some(
+        (m) =>
+          (m.chunkId && m.chunkId === focusedMatch.chunkId) ||
+          (m.startChar === focusedMatch.startChar &&
+            m.endChar === focusedMatch.endChar),
+      )
+    ) {
+      return matches;
+    }
+    return [focusedMatch, ...matches];
+  }, [matches, focusedMatch]);
+
+  const currentMatch = effectiveMatches[activeMatchIndex] ?? focusedMatch;
+  const content =
+    source?.content ?? currentMatch?.context ?? focusedMatch?.context ?? '';
+  const highlightRanges = getHighlightRanges(
+    content,
+    effectiveMatches,
+    currentMatch,
+  );
+  const focusKey = `${content.length}:${currentMatch?.sourceId ?? ''}:${currentMatch?.startChar ?? ''}:${currentMatch?.endChar ?? ''}:${activeMatchIndex}:${viewMode}`;
 
   const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -83,9 +183,9 @@ export function SourceViewerDialog({
     const dialogEl = (e.currentTarget.closest('.source-dialog') ||
       e.currentTarget.parentElement) as HTMLElement | null;
     const initialWidth =
-      panelSize?.width ?? (dialogEl ? dialogEl.offsetWidth : 800);
+      panelSize?.width ?? (dialogEl ? dialogEl.offsetWidth : 1180);
     const initialHeight =
-      panelSize?.height ?? (dialogEl ? dialogEl.offsetHeight : 700);
+      panelSize?.height ?? (dialogEl ? dialogEl.offsetHeight : 820);
 
     let hasMoved = false;
     setIsResizing(true);
@@ -131,13 +231,13 @@ export function SourceViewerDialog({
 
         if (isCurrentlyLarge) {
           setPanelSize({
-            width: Math.min(800, maxW),
-            height: Math.min(700, maxH),
+            width: Math.min(1180, maxW),
+            height: Math.min(820, maxH),
           });
         } else {
           setPanelSize({
-            width: Math.min(1120, maxW),
-            height: Math.min(840, maxH),
+            width: Math.min(1440, maxW),
+            height: Math.min(920, maxH),
           });
         }
       }
@@ -148,32 +248,24 @@ export function SourceViewerDialog({
   };
 
   useEffect(() => {
-    if (!focusedMatch || matches.length === 0) {
+    if (!focusedMatch || effectiveMatches.length === 0) {
       setActiveMatchIndex(0);
       return;
     }
-    const idx = matches.findIndex(
+    const idx = effectiveMatches.findIndex(
       (m) =>
-        m.startChar === focusedMatch.startChar &&
-        m.endChar === focusedMatch.endChar &&
-        m.pageNum === focusedMatch.pageNum,
+        (m.chunkId && m.chunkId === focusedMatch.chunkId) ||
+        (m.startChar === focusedMatch.startChar &&
+          m.endChar === focusedMatch.endChar &&
+          m.pageNum === focusedMatch.pageNum) ||
+        (m.content && m.content === focusedMatch.content),
     );
     if (idx !== -1) {
       setActiveMatchIndex(idx);
     } else {
       setActiveMatchIndex(0);
     }
-  }, [focusedMatch, matches]);
-
-  useEffect(() => {
-    setSelectedColIndex(null);
-  }, [activeMatchIndex]);
-
-  const currentMatch = matches[activeMatchIndex] ?? focusedMatch;
-  const parsedTable =
-    currentMatch && currentMatch.elementType === 'table'
-      ? parseMarkdownTable(currentMatch.content)
-      : null;
+  }, [focusedMatch, effectiveMatches]);
 
   const copyCitation = (matchToCopy?: SearchChunk) => {
     const target = matchToCopy ?? currentMatch;
@@ -188,6 +280,33 @@ export function SourceViewerDialog({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSelectViewMode = (mode: ViewMode) => {
+    if (!hasWriteAccess && mode !== 'preview' && mode !== 'split') {
+      return;
+    }
+    setViewMode(mode);
+    if (mode === 'split' && (!panelSize || panelSize.width < 1180)) {
+      const targetWidth = Math.min(
+        1280,
+        Math.max(1080, window.innerWidth - 32),
+      );
+      const targetHeight = Math.min(
+        840,
+        Math.max(680, window.innerHeight - 32),
+      );
+      setPanelSize({
+        width: targetWidth,
+        height: targetHeight,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!hasWriteAccess && (viewMode === 'edit' || viewMode === 'raw')) {
+      setViewMode('preview');
+    }
+  }, [hasWriteAccess, viewMode]);
+
   useEffect(() => {
     if (!sourceId) return;
     setLoading(true);
@@ -195,26 +314,24 @@ export function SourceViewerDialog({
       .source(sourceId)
       .then((data) => {
         setSource(data);
-        if (isPdfSource(data, focusedMatch)) {
-          // If viewing a match on a specific page, default to PDF tab
-          if (focusedMatch?.pageNum && focusedMatch.pageNum > 1) {
-            setViewMode('pdf');
-          }
-        }
+        setEditName(data.name);
+        setEditContent(data.content ?? '');
+        setAutosaveStatus('idle');
       })
       .finally(() => setLoading(false));
-  }, [sourceId, focusedMatch]);
+  }, [sourceId]);
 
   useEffect(() => {
-    if (!content || !focusedMatch || viewMode === 'pdf') return;
+    if (!content || !currentMatch || viewMode === 'edit') return;
     const timer = setTimeout(() => {
       hitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 60);
     return () => clearTimeout(timer);
-  }, [content, focusKey, focusedMatch, viewMode]);
+  }, [content, focusKey, currentMatch, activeMatchIndex, viewMode]);
 
   useEffect(() => {
-    if (!sourceId || viewMode !== 'pdf' || matches.length <= 1) return;
+    if (!sourceId || effectiveMatches.length <= 1 || viewMode === 'edit')
+      return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const activeElement = document.activeElement;
@@ -239,13 +356,107 @@ export function SourceViewerDialog({
         event.key === 'n'
       ) {
         event.preventDefault();
-        setActiveMatchIndex((prev) => Math.min(matches.length - 1, prev + 1));
+        setActiveMatchIndex((prev) =>
+          Math.min(effectiveMatches.length - 1, prev + 1),
+        );
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sourceId, viewMode, matches.length]);
+  }, [sourceId, viewMode, effectiveMatches.length]);
+
+  const handleSaveNote = async () => {
+    if (!hasWriteAccess || !sourceId || isSavingRef.current) return;
+    setIsSaving(true);
+    isSavingRef.current = true;
+    setAutosaveStatus('saving');
+    try {
+      const updated = await api.updateSource(sourceId, {
+        name:
+          editNameRef.current.trim() ||
+          sourceRef.current?.name ||
+          'Untitled Note',
+        content: editContentRef.current,
+      });
+      setSource(updated);
+      setEditName(updated.name);
+      setEditContent(updated.content ?? '');
+
+      const currentGraph = useGraphStore.getState().graph;
+      if (currentGraph) {
+        useGraphStore
+          .getState()
+          .setSources(
+            currentGraph.sources.map((item) =>
+              item.id === updated.id ? updated : item,
+            ),
+          );
+      }
+      setSaveSuccess(true);
+      setAutosaveStatus('saved');
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to update source:', err);
+      setAutosaveStatus('error');
+    } finally {
+      setIsSaving(false);
+      isSavingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!hasWriteAccess || !sourceId || !source || !isDirty || isSaving) {
+      return;
+    }
+
+    setAutosaveStatus('unsaved');
+    const timer = setTimeout(() => {
+      void handleSaveNote();
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [
+    editName,
+    editContent,
+    isDirty,
+    sourceId,
+    source,
+    isSaving,
+    hasWriteAccess,
+  ]);
+
+  const renderAutosaveIndicator = () => {
+    if (!hasWriteAccess) return null;
+    if (isSaving || autosaveStatus === 'saving') {
+      return (
+        <span className="autosave-status saving" data-testid="autosave-saving">
+          <LoaderCircle className="spinner" size={12} />
+          <span>Saving...</span>
+        </span>
+      );
+    }
+    if (saveSuccess || autosaveStatus === 'saved') {
+      return (
+        <span className="autosave-status saved" data-testid="autosave-saved">
+          <Check size={12} />
+          <span>All changes saved</span>
+        </span>
+      );
+    }
+    if (isDirty || autosaveStatus === 'unsaved') {
+      return (
+        <span
+          className="autosave-status unsaved"
+          data-testid="autosave-unsaved"
+        >
+          <span className="unsaved-dot" />
+          <span>Unsaved changes</span>
+        </span>
+      );
+    }
+    return null;
+  };
 
   return (
     <DialogFrame
@@ -254,10 +465,10 @@ export function SourceViewerDialog({
       title={
         source?.name ??
         focusedMatch?.sourceName ??
-        matches[0]?.sourceName ??
+        effectiveMatches[0]?.sourceName ??
         'Source viewer'
       }
-      className="source-dialog"
+      className={`source-dialog ${viewMode === 'split' ? 'is-split-mode' : ''}`}
       style={
         panelSize
           ? {
@@ -272,14 +483,58 @@ export function SourceViewerDialog({
           <FileText size={16} />
           <span>{source?.status ?? 'Loading'}</span>
           {focusedMatch ? <span>Page {focusedMatch.pageNum}</span> : null}
-          {matches.length > 0 ? <span>{matches.length} matches</span> : null}
+          {effectiveMatches.length > 0 ? (
+            <span>{effectiveMatches.length} matches</span>
+          ) : null}
+          {effectiveMatches.length > 1 ? (
+            <div
+              className="match-stepper-group"
+              role="group"
+              aria-label="Match navigation stepper"
+            >
+              <button
+                type="button"
+                className="match-stepper-btn"
+                disabled={activeMatchIndex <= 0}
+                onClick={() => setActiveMatchIndex(activeMatchIndex - 1)}
+                title="Previous search hit (Press [ or Alt+Left)"
+                aria-label="Previous match"
+              >
+                <ChevronLeft size={13} />
+              </button>
+              <span className="match-stepper-counter">
+                {activeMatchIndex + 1} / {effectiveMatches.length}
+              </span>
+              <button
+                type="button"
+                className="match-stepper-btn"
+                disabled={activeMatchIndex >= effectiveMatches.length - 1}
+                onClick={() => setActiveMatchIndex(activeMatchIndex + 1)}
+                title="Next search hit (Press ] or Alt+Right)"
+                aria-label="Next match"
+              >
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          ) : null}
+          {currentMatch ? (
+            <button
+              type="button"
+              className={`copy-citation-btn ${copied ? 'copied' : ''}`}
+              onClick={() => copyCitation(currentMatch)}
+              title="Copy excerpt citation as Markdown"
+            >
+              {copied ? <Check size={11} /> : <Copy size={11} />}
+              <span>{copied ? 'Copied!' : 'Copy Citation'}</span>
+            </button>
+          ) : null}
         </div>
         <div className="source-viewer-actions">
           <div className="source-view-mode-toggle" role="tablist">
             <button
               type="button"
               className={`view-mode-btn ${viewMode === 'preview' ? 'active' : ''}`}
-              onClick={() => setViewMode('preview')}
+              onClick={() => handleSelectViewMode('preview')}
               role="tab"
               aria-selected={viewMode === 'preview'}
             >
@@ -288,24 +543,36 @@ export function SourceViewerDialog({
             </button>
             <button
               type="button"
-              className={`view-mode-btn ${viewMode === 'source' ? 'active' : ''}`}
-              onClick={() => setViewMode('source')}
+              className={`view-mode-btn ${viewMode === 'split' ? 'active' : ''}`}
+              onClick={() => handleSelectViewMode('split')}
               role="tab"
-              aria-selected={viewMode === 'source'}
+              aria-selected={viewMode === 'split'}
             >
-              <Code size={13} />
-              <span>Raw</span>
+              <Columns2 size={13} />
+              <span>Split</span>
             </button>
-            {isPdf ? (
+            {hasWriteAccess ? (
               <button
                 type="button"
-                className={`view-mode-btn ${viewMode === 'pdf' ? 'active' : ''}`}
-                onClick={() => setViewMode('pdf')}
+                className={`view-mode-btn ${viewMode === 'edit' ? 'active' : ''}`}
+                onClick={() => handleSelectViewMode('edit')}
                 role="tab"
-                aria-selected={viewMode === 'pdf'}
+                aria-selected={viewMode === 'edit'}
               >
-                <FileText size={13} />
-                <span>PDF</span>
+                <Edit3 size={13} />
+                <span>Edit Note</span>
+              </button>
+            ) : null}
+            {hasWriteAccess ? (
+              <button
+                type="button"
+                className={`view-mode-btn ${viewMode === 'raw' ? 'active' : ''}`}
+                onClick={() => handleSelectViewMode('raw')}
+                role="tab"
+                aria-selected={viewMode === 'raw'}
+              >
+                <Code size={13} />
+                <span>Raw</span>
               </button>
             ) : null}
           </div>
@@ -324,261 +591,186 @@ export function SourceViewerDialog({
         </div>
       </div>
       {isLoading ? <LoaderCircle className="spinner" size={24} /> : null}
-      {!isLoading && (content || (isPdf && sourceId)) ? (
+      {!isLoading &&
+      (content ||
+        editContent ||
+        (hasWriteAccess && viewMode === 'edit') ||
+        viewMode === 'split') ? (
         <article className="source-document-container">
-          {viewMode === 'pdf' && sourceId ? (
-            <div className="source-document pdf-viewer-wrapper">
-              {currentMatch?.coordinates || currentMatch?.pageNum ? (
-                <div className="pdf-target-banner">
-                  <div className="pdf-target-info">
-                    <Crosshair size={13} className="pdf-target-icon" />
-                    <span className="pdf-target-tag is-page">
-                      Page {currentMatch.pageNum ?? 1}
-                    </span>
-                    {currentMatch.elementType ? (
-                      <span className="pdf-target-tag is-type">
-                        {currentMatch.elementType}
-                      </span>
-                    ) : null}
-                    {currentMatch.coordinates?.length === 4 ? (
-                      <span className="pdf-target-coords">
-                        Target Box: {Math.round(currentMatch.coordinates[0]!)},{' '}
-                        {Math.round(currentMatch.coordinates[1]!)} (
-                        {Math.round(currentMatch.coordinates[2]!)}×
-                        {Math.round(currentMatch.coordinates[3]!)} pt)
-                      </span>
-                    ) : null}
-                  </div>
-                  {matches.length > 1 ? (
-                    <div
-                      className="pdf-stepper-group"
-                      role="group"
-                      aria-label="Match navigation stepper"
-                    >
-                      <button
-                        type="button"
-                        className="pdf-stepper-btn"
-                        disabled={activeMatchIndex <= 0}
-                        onClick={() =>
-                          setActiveMatchIndex(activeMatchIndex - 1)
-                        }
-                        title="Previous search hit (Press [ or Alt+Left)"
-                        aria-label="Previous match"
-                      >
-                        <ChevronLeft size={13} />
-                        <kbd className="stepper-kbd">[</kbd>
-                      </button>
-                      <span className="pdf-stepper-counter">
-                        {activeMatchIndex + 1} / {matches.length}
-                      </span>
-                      <button
-                        type="button"
-                        className="pdf-stepper-btn"
-                        disabled={activeMatchIndex >= matches.length - 1}
-                        onClick={() =>
-                          setActiveMatchIndex(activeMatchIndex + 1)
-                        }
-                        title="Next search hit (Press ] or Alt+Right)"
-                        aria-label="Next match"
-                      >
-                        <kbd className="stepper-kbd">]</kbd>
-                        <ChevronRight size={13} />
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="pdf-target-controls">
-                    <button
-                      type="button"
-                      className={`pdf-copy-citation-btn ${copied ? 'copied' : ''}`}
-                      onClick={() => copyCitation(currentMatch)}
-                      title="Copy excerpt citation as Markdown"
-                    >
-                      {copied ? <Check size={11} /> : <Copy size={11} />}
-                      <span>{copied ? 'Copied!' : 'Copy Citation'}</span>
-                    </button>
-                    {currentMatch.coordinates?.length === 4 ? (
-                      <button
-                        type="button"
-                        className={`pdf-overlay-toggle-btn ${showOverlay ? 'active' : ''}`}
-                        onClick={() => setShowOverlay(!showOverlay)}
-                        title="Toggle visual target bounding box overlay"
-                      >
-                        <Crosshair size={11} />
-                        <span>
-                          {showOverlay
-                            ? 'Target Guide: ON'
-                            : 'Target Guide: OFF'}
-                        </span>
-                      </button>
-                    ) : null}
-                    {parsedTable ? (
-                      <button
-                        type="button"
-                        className={`pdf-table-toggle-btn ${showTableInspector ? 'active' : ''}`}
-                        onClick={() =>
-                          setShowTableInspector(!showTableInspector)
-                        }
-                        title="Toggle extracted table structure and column highlighting"
-                      >
-                        <Table size={11} />
-                        <span>
-                          {showTableInspector ? 'Table: ON' : 'Table: OFF'}
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-              {showTableInspector && parsedTable ? (
-                <div
-                  className="pdf-table-inspector"
-                  role="region"
-                  aria-label="Extracted Table Inspector"
-                >
-                  <div className="pdf-table-inspector-header">
-                    <div className="pdf-table-inspector-title">
-                      <Table size={12} />
+          {viewMode === 'preview' ? (
+            <div className="source-document markdown-preview">
+              {renderMarkdownPreview(content, highlightRanges, hitRef)}
+            </div>
+          ) : viewMode === 'split' ? (
+            <div className="source-document split-editor-container">
+              <div className="split-pane split-editor-pane">
+                <div className="note-editor-toolbar">
+                  <div className="note-editor-title-row">
+                    <input
+                      type="text"
+                      className={`note-editor-title-input ${!hasWriteAccess ? 'read-only' : ''}`}
+                      placeholder={
+                        hasWriteAccess ? 'Note title (e.g. Notes.md)' : ''
+                      }
+                      value={editName}
+                      readOnly={!hasWriteAccess}
+                      onChange={
+                        hasWriteAccess
+                          ? (e) => setEditName(e.target.value)
+                          : undefined
+                      }
+                      aria-label="Note title"
+                    />
+                    <div className="note-editor-stats">
+                      <span>{editContent.length} chars</span>
                       <span>
-                        Table Structure ({parsedTable.headers.length} cols,{' '}
-                        {parsedTable.rows.length} rows)
+                        {editContent.trim().split(/\s+/).filter(Boolean).length}{' '}
+                        words
                       </span>
                     </div>
-                    {selectedColIndex !== null ? (
+                  </div>
+                  {hasWriteAccess ? (
+                    <div className="note-editor-actions">
+                      {renderAutosaveIndicator()}
                       <button
                         type="button"
-                        className="pdf-table-clear-col-btn"
-                        onClick={() => setSelectedColIndex(null)}
-                        title="Clear column highlight"
+                        className={`note-save-btn ${saveSuccess ? 'is-saved' : ''}`}
+                        disabled={isSaving}
+                        onClick={handleSaveNote}
                       >
-                        Clear Column Highlight
-                      </button>
-                    ) : (
-                      <span className="pdf-table-hint">
-                        Click column header to highlight
-                      </span>
-                    )}
-                  </div>
-                  <div className="pdf-table-scroll-container">
-                    <table className="pdf-table-grid">
-                      <thead>
-                        <tr>
-                          {parsedTable.headers.map((header, idx) => (
-                            <th
-                              key={`th-${idx}-${header}`}
-                              className={`pdf-table-th ${selectedColIndex === idx ? 'is-active-col' : ''}`}
-                              onClick={() =>
-                                setSelectedColIndex(
-                                  selectedColIndex === idx ? null : idx,
-                                )
-                              }
-                              title={`Click to highlight column "${header}"`}
-                            >
-                              <div className="pdf-th-content">
-                                <span>{header}</span>
-                                {selectedColIndex === idx ? (
-                                  <span className="col-pin-badge">Active</span>
-                                ) : null}
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {parsedTable.rows.map((row, rIdx) => (
-                          <tr key={`tr-${rIdx}`}>
-                            {row.map((cell, cIdx) => (
-                              <td
-                                key={`td-${rIdx}-${cIdx}`}
-                                className={`pdf-table-td ${selectedColIndex === cIdx ? 'is-active-col' : ''}`}
-                                onClick={() =>
-                                  setSelectedColIndex(
-                                    selectedColIndex === cIdx ? null : cIdx,
-                                  )
-                                }
-                              >
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : null}
-              <div className="pdf-viewport-container">
-                <object
-                  data={`${api.sourceDownloadUrl(sourceId)}#page=${currentMatch?.pageNum ?? 1}&zoom=100`}
-                  type="application/pdf"
-                  className="source-pdf-embed"
-                  title={source?.name ?? 'PDF Document'}
-                >
-                  <iframe
-                    src={`${api.sourceDownloadUrl(sourceId)}#page=${currentMatch?.pageNum ?? 1}&zoom=100`}
-                    className="source-pdf-embed"
-                    title={source?.name ?? 'PDF Document Preview'}
-                  >
-                    <div className="pdf-fallback-container">
-                      <FileText size={32} className="pdf-fallback-icon" />
-                      <p>
-                        PDF inline preview is not supported directly by your
-                        browser.
-                      </p>
-                      <a
-                        href={api.sourceDownloadUrl(sourceId)}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="view-mode-btn source-download-btn pdf-fallback-btn"
-                      >
-                        <Download size={13} />
-                        <span>Download or Open PDF</span>
-                      </a>
-                    </div>
-                  </iframe>
-                </object>
-                {showOverlay &&
-                currentMatch?.coordinates &&
-                currentMatch.coordinates.length === 4 ? (
-                  <div className="pdf-overlay-layer">
-                    <div
-                      className="pdf-coordinate-box"
-                      style={{
-                        left: `${Math.max(0, Math.min(95, (currentMatch.coordinates[0]! / 595) * 100))}%`,
-                        top: `${Math.max(0, Math.min(95, (currentMatch.coordinates[1]! / 842) * 100))}%`,
-                        width: `${Math.max(4, Math.min(95, (currentMatch.coordinates[2]! / 595) * 100))}%`,
-                        height: `${Math.max(2, Math.min(95, (currentMatch.coordinates[3]! / 842) * 100))}%`,
-                      }}
-                      title={`Citation Target: ${currentMatch.elementType ?? 'content'} on Page ${currentMatch.pageNum} (Click to copy citation)`}
-                      onClick={() => copyCitation(currentMatch)}
-                    >
-                      <button
-                        type="button"
-                        className="pdf-coordinate-pin"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copyCitation(currentMatch);
-                        }}
-                        title="Click to copy citation"
-                      >
-                        <Crosshair size={10} />
-                        <span>
-                          p.{currentMatch.pageNum ?? 1}{' '}
-                          {currentMatch.elementType ?? 'Target'}
-                        </span>
-                        {copied ? (
-                          <Check size={9} className="pin-copy-icon" />
+                        {isSaving ? (
+                          <>
+                            <LoaderCircle className="spinner" size={13} />
+                            <span>Saving...</span>
+                          </>
+                        ) : saveSuccess ? (
+                          <>
+                            <Check size={13} />
+                            <span>Saved!</span>
+                          </>
                         ) : (
-                          <Copy size={9} className="pin-copy-icon" />
+                          <>
+                            <Save size={13} />
+                            <span>Save Note</span>
+                          </>
                         )}
                       </button>
                     </div>
+                  ) : null}
+                </div>
+                <textarea
+                  ref={editorTextareaRef}
+                  onScroll={handleEditorScroll}
+                  className={`note-editor-textarea ${!hasWriteAccess ? 'read-only' : ''}`}
+                  placeholder={
+                    hasWriteAccess
+                      ? 'Write your markdown note here...'
+                      : 'Markdown source content...'
+                  }
+                  value={editContent}
+                  readOnly={!hasWriteAccess}
+                  onChange={
+                    hasWriteAccess
+                      ? (e) => setEditContent(e.target.value)
+                      : undefined
+                  }
+                  spellCheck={false}
+                />
+              </div>
+              <div className="split-pane split-preview-pane">
+                <div className="split-preview-header">
+                  <div className="split-preview-title">
+                    <Eye size={13} />
+                    <span>Live Preview</span>
                   </div>
-                ) : null}
+                  <button
+                    type="button"
+                    className={`sync-scroll-btn ${isSyncScrollEnabled ? 'active' : ''}`}
+                    onClick={() => setIsSyncScrollEnabled((prev) => !prev)}
+                    title={
+                      isSyncScrollEnabled
+                        ? 'Disable synchronized scroll'
+                        : 'Enable synchronized scroll'
+                    }
+                    aria-label="Toggle synchronized scroll"
+                    data-testid="toggle-sync-scroll-btn"
+                  >
+                    {isSyncScrollEnabled ? (
+                      <Link2 size={12} />
+                    ) : (
+                      <Unlink size={12} />
+                    )}
+                    <span>{isSyncScrollEnabled ? 'Sync on' : 'Sync off'}</span>
+                  </button>
+                </div>
+                <div
+                  ref={previewScrollRef}
+                  onScroll={handlePreviewScroll}
+                  className="source-document split-preview-scroll markdown-preview"
+                >
+                  {editContent.trim() ? (
+                    renderMarkdownPreview(editContent, highlightRanges, hitRef)
+                  ) : (
+                    <div className="split-preview-empty">
+                      Markdown preview will appear here in real time...
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          ) : viewMode === 'preview' ? (
-            <div className="source-document markdown-preview">
-              {renderMarkdownPreview(content, highlightRanges, hitRef)}
+          ) : viewMode === 'edit' ? (
+            <div className="source-document note-editor-container">
+              <div className="note-editor-toolbar">
+                <div className="note-editor-title-row">
+                  <input
+                    type="text"
+                    className="note-editor-title-input"
+                    placeholder="Note title (e.g. Notes.md)"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                  />
+                  <div className="note-editor-stats">
+                    <span>{editContent.length} characters</span>
+                    <span>
+                      {editContent.trim().split(/\s+/).filter(Boolean).length}{' '}
+                      words
+                    </span>
+                  </div>
+                </div>
+                <div className="note-editor-actions">
+                  {renderAutosaveIndicator()}
+                  <button
+                    type="button"
+                    className={`note-save-btn ${saveSuccess ? 'is-saved' : ''}`}
+                    disabled={isSaving}
+                    onClick={handleSaveNote}
+                  >
+                    {isSaving ? (
+                      <>
+                        <LoaderCircle className="spinner" size={13} />
+                        <span>Saving...</span>
+                      </>
+                    ) : saveSuccess ? (
+                      <>
+                        <Check size={13} />
+                        <span>Saved!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save size={13} />
+                        <span>Save Note</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="note-editor-textarea"
+                placeholder="Write your markdown note here..."
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                spellCheck={false}
+              />
             </div>
           ) : (
             <pre className="source-document source-raw">
@@ -659,17 +851,52 @@ export function getHighlightRanges(
   matches: SearchChunk[],
   focusedMatch?: SearchChunk,
 ): HighlightRange[] {
-  const ranges = matches
+  const allMatches = [...matches];
+  if (
+    focusedMatch &&
+    !allMatches.some(
+      (m) =>
+        m.sourceId === focusedMatch.sourceId &&
+        ((m.chunkId && m.chunkId === focusedMatch.chunkId) ||
+          (m.startChar === focusedMatch.startChar &&
+            m.endChar === focusedMatch.endChar)),
+    )
+  ) {
+    allMatches.push(focusedMatch);
+  }
+
+  const ranges = allMatches
     .map((match) => {
+      let start = Math.max(0, match.startChar ?? 0);
+      let end = Math.min(content.length, match.endChar ?? 0);
+
+      // Fallback: If chunk character offsets are not provided or invalid, search snippet in content
+      if (
+        (end <= start ||
+          match.startChar === undefined ||
+          match.endChar === undefined) &&
+        match.content &&
+        content
+      ) {
+        const needle = match.content.trim().slice(0, 40);
+        const found = content.indexOf(needle);
+        if (found !== -1) {
+          start = found;
+          end = Math.min(content.length, found + match.content.trim().length);
+        }
+      }
+
       const isFocused =
         Boolean(focusedMatch) &&
         match.sourceId === focusedMatch?.sourceId &&
-        match.startChar === focusedMatch?.startChar &&
-        match.endChar === focusedMatch?.endChar;
+        ((match.chunkId && match.chunkId === focusedMatch?.chunkId) ||
+          (match.startChar === focusedMatch?.startChar &&
+            match.endChar === focusedMatch?.endChar) ||
+          (start >= 0 && start === focusedMatch?.startChar));
 
       return {
-        start: Math.max(0, match.startChar),
-        end: Math.min(content.length, match.endChar),
+        start,
+        end,
         focused: isFocused,
         kind: match.kind ?? 'MATCH',
       };
@@ -751,6 +978,7 @@ export function renderMarkdownPreview(
     const groupHtml = marked.parser(group.tokens);
     const cleanHtml = DOMPurify.sanitize(groupHtml, {
       USE_PROFILES: { mathMl: true, html: true },
+      ADD_DATA_URI_TAGS: ['img'],
     });
 
     if (group.matchedRange) {

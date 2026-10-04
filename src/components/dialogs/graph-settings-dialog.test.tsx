@@ -21,16 +21,21 @@ const mockGraph = {
 };
 
 const mockLimits = {
-  tier: 'FREE' as const,
-  graphs: { used: 1, limit: 5, exceeded: false },
-  privateGraphs: { used: 1, limit: 2, exceeded: false },
-  queries: { used: 0, limit: 20, exceeded: false },
-  uploads: { used: 0, limit: 10, exceeded: false },
-  selectedNodes: { used: 0, limit: 10, exceeded: false },
-  nodesPerGraph: { used: 0, limit: 10, exceeded: false },
-  sourcesPerNode: { used: 0, limit: 3, exceeded: false },
-  sourceSizeBytes: { used: 0, limit: 2097152, exceeded: false },
-  extendedContext: { used: 0, limit: 3, exceeded: false },
+  tier: 'REGISTERED' as const,
+  storage: {
+    usedBytes: 10 * 1024 * 1024,
+    limitBytes: 100 * 1024 * 1024,
+    limitMb: 100,
+    usedPercentage: 10,
+    exceeded: false,
+  },
+  queueOccupation: 'low' as const,
+  canCreateGraphs: true,
+  crawl: {
+    allowedDepths: ['shallow', 'default', 'deep', 'unlimited'],
+    maxStartingPoints: null,
+    allowComparative: true,
+  },
 };
 
 describe('GraphSettingsDialog', () => {
@@ -44,7 +49,6 @@ describe('GraphSettingsDialog', () => {
         open={true}
         onOpenChange={vi.fn()}
         onSave={vi.fn()}
-        onOpenPricing={vi.fn()}
       />,
     );
 
@@ -60,7 +64,6 @@ describe('GraphSettingsDialog', () => {
         open={true}
         onOpenChange={vi.fn()}
         onSave={vi.fn()}
-        onOpenPricing={vi.fn()}
       />,
     );
 
@@ -81,7 +84,6 @@ describe('GraphSettingsDialog', () => {
         open={true}
         onOpenChange={vi.fn()}
         onSave={onSave}
-        onOpenPricing={vi.fn()}
       />,
     );
 
@@ -97,40 +99,15 @@ describe('GraphSettingsDialog', () => {
     });
   });
 
-  it('intercepts retention exemption click for non-PRO user and opens pricing dialog', () => {
-    const onOpenPricing = vi.fn();
-    const onOpenChange = vi.fn();
+  it('allows toggling retention exemption directly and submits setting', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
     render(
       <GraphSettingsDialog
         graph={mockGraph}
         limits={mockLimits}
         open={true}
-        onOpenChange={onOpenChange}
-        onSave={vi.fn()}
-        onOpenPricing={onOpenPricing}
-      />,
-    );
-
-    const checkbox = screen.getByRole('checkbox', {
-      name: /Preserve graph indefinitely/i,
-    });
-    fireEvent.click(checkbox);
-
-    expect(onOpenPricing).toHaveBeenCalledTimes(1);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it('allows toggling retention exemption for PRO user and submits setting', async () => {
-    const onSave = vi.fn().mockResolvedValue(undefined);
-    const proLimits = { ...mockLimits, tier: 'PRO' as const };
-    render(
-      <GraphSettingsDialog
-        graph={mockGraph}
-        limits={proLimits}
-        open={true}
         onOpenChange={vi.fn()}
         onSave={onSave}
-        onOpenPricing={vi.fn()}
       />,
     );
 

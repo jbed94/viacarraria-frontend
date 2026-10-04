@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldAlert } from 'lucide-react';
+import type React from 'react';
+import { useEffect, useState } from 'react';
 
 import { api } from '../../lib/api';
 

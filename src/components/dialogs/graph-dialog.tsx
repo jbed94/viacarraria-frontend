@@ -1,8 +1,7 @@
 import { Globe, Lock } from 'lucide-react';
 import type { FormEvent } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import type { LimitStatus, SubscriptionTier } from '../../types/api';
 import { DialogFrame } from './dialog-frame';
 
 type GraphDialogProps = {
@@ -13,36 +12,17 @@ type GraphDialogProps = {
     description: string,
     isPublic: boolean,
   ) => Promise<void>;
-  privateQuota?: LimitStatus;
-  tier?: SubscriptionTier;
-  onOpenPricing?: () => void;
 };
 
 export function GraphDialog({
   open,
   onOpenChange,
   onCreate,
-  privateQuota,
-  tier,
-  onOpenPricing,
 }: GraphDialogProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isSubmitting, setSubmitting] = useState(false);
-
-  const isFree = tier === 'FREE';
-  const privateLimitReached = Boolean(
-    isFree &&
-      privateQuota?.limit != null &&
-      privateQuota.used >= privateQuota.limit,
-  );
   const [isPublic, setIsPublic] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setIsPublic(privateLimitReached);
-    }
-  }, [open, privateLimitReached]);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -87,24 +67,18 @@ export function GraphDialog({
           <span className="field-label">Visibility</span>
           <div className="visibility-options">
             <label
-              className={`visibility-option-card ${!isPublic ? 'selected' : ''} ${privateLimitReached ? 'disabled' : ''}`}
+              className={`visibility-option-card ${!isPublic ? 'selected' : ''}`}
             >
               <input
                 type="radio"
                 name="new-graph-visibility"
                 checked={!isPublic}
-                disabled={privateLimitReached}
                 onChange={() => setIsPublic(false)}
               />
               <div className="visibility-card-content">
                 <div className="visibility-title">
                   <Lock size={13} aria-hidden="true" />
                   <strong>Private</strong>
-                  {isFree ? (
-                    <span className="visibility-quota-tag">
-                      {privateQuota?.used ?? 0} / {privateQuota?.limit ?? 2}
-                    </span>
-                  ) : null}
                 </div>
                 <span className="visibility-desc">Visible only to you.</span>
               </div>
@@ -130,24 +104,6 @@ export function GraphDialog({
               </div>
             </label>
           </div>
-          {privateLimitReached ? (
-            <p className="limit-warning">
-              You have used all {privateQuota?.limit ?? 2} private graphs
-              included in Free.{' '}
-              {onOpenPricing ? (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => {
-                    onOpenChange(false);
-                    onOpenPricing();
-                  }}
-                >
-                  Upgrade to Pro for unlimited private graphs.
-                </button>
-              ) : null}
-            </p>
-          ) : null}
         </div>
 
         <button

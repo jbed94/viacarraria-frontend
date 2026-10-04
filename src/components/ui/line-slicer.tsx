@@ -1,16 +1,16 @@
-export type LineSlicerOption<T extends string> = {
+export type LineSlicerOption<T extends string | number> = {
   value: T;
   label: string;
 };
 
-export type LineSlicerProps<T extends string> = {
+export type LineSlicerProps<T extends string | number> = {
   label: string;
   value: T;
   options: LineSlicerOption<T>[];
   onChange: (value: T) => void;
 };
 
-export function LineSlicer<T extends string>({
+export function LineSlicer<T extends string | number>({
   label,
   value,
   options,
@@ -37,7 +37,7 @@ export function LineSlicer<T extends string>({
           const isPassed = index <= activeIndex;
           return (
             <button
-              key={option.value}
+              key={String(option.value)}
               type="button"
               role="radio"
               aria-checked={isActive}

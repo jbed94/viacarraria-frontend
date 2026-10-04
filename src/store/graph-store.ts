@@ -8,8 +8,8 @@ import {
 } from '@xyflow/react';
 import { create } from 'zustand';
 
-import { layoutGraph } from '../lib/layout';
 import type {
+  CrawlResponse,
   Graph,
   GraphEdge,
   GraphNode,
@@ -21,7 +21,22 @@ import type {
   Source,
 } from '../types/api';
 
-export type GraphMode = 'IDLE' | 'CONTEXT_SELECTION' | 'VISUAL_RESULTS';
+export type QueryType = 'simple' | 'crawl';
+
+export type GraphMode =
+  | 'IDLE'
+  | 'CONTEXT_SELECTION'
+  | 'CRAWL_SELECTION'
+  | 'VISUAL_RESULTS'
+  | 'CRAWL_RESULTS';
+
+export type LightboxFigure = {
+  url: string;
+  title?: string;
+  pageNum?: number;
+  sourceName?: string;
+  coordinates?: number[];
+};
 
 export type ActiveUpload = {
   uploadKey: string;
@@ -39,26 +54,47 @@ type GraphStore = {
   graph?: Graph;
   graphs: GraphSummary[];
   mode: GraphMode;
+  queryType: QueryType;
   selectedNodeIds: string[];
+  previewNodeIds: string[];
+  setPreviewNodeIds: (ids: string[]) => void;
+  crawlStartingNodeIds: string[];
   results?: SearchResponse;
+  crawlResults?: CrawlResponse;
+  minRelevanceScore: number;
   history: QueryHistory[];
   expandedNodeIds: string[];
   activeSourceId?: string;
   activeMatch?: SearchChunk;
+  activeLightboxFigure?: LightboxFigure | null;
+  openLightbox: (figure: LightboxFigure) => void;
+  closeLightbox: () => void;
+  addNodeFromCrop: (cropBase64: string, title?: string) => string | null;
   editingNodeId?: string;
   pendingDeleteNodeId?: string;
   isEditing: boolean;
   isLoading: boolean;
   error?: string;
   activeUploads: Record<string, ActiveUpload>;
+  isFocusMode: boolean;
+  focusedNodeId?: string;
+  setFocusMode: (val: boolean) => void;
+  toggleFocusMode: () => void;
+  setFocusedNodeId: (id?: string) => void;
   setIdentity: (identity?: Identity) => void;
   setGraphs: (graphs: GraphSummary[]) => void;
   setGraph: (graph: Graph) => void;
   setMode: (mode: GraphMode) => void;
+  setQueryType: (queryType: QueryType) => void;
   setHistory: (history: QueryHistory[]) => void;
   setResults: (results?: SearchResponse) => void;
+  setCrawlResults: (crawlResults?: CrawlResponse) => void;
+  setMinRelevanceScore: (score: number) => void;
+  clearResults: () => void;
   toggleNodeSelection: (id: string) => void;
   setSelectedNodeIds: (ids: string[]) => void;
+  toggleCrawlStartingNode: (id: string) => void;
+  setCrawlStartingNodeIds: (ids: string[]) => void;
   toggleExpanded: (id: string) => void;
   setActiveSourceId: (id?: string) => void;
   setActiveMatch: (match?: SearchChunk) => void;
@@ -89,56 +125,102 @@ type GraphStore = {
 export const useGraphStore = create<GraphStore>((set) => ({
   graphs: [],
   mode: 'IDLE',
+  queryType: 'simple',
   selectedNodeIds: [],
+  previewNodeIds: [],
+  setPreviewNodeIds: (previewNodeIds) => set({ previewNodeIds }),
+  crawlStartingNodeIds: [],
+  minRelevanceScore: 0,
   history: [],
   expandedNodeIds: [],
   isEditing: false,
   isLoading: true,
   activeUploads: {},
+  isFocusMode: false,
+  focusedNodeId: undefined,
+  setFocusMode: (isFocusMode) => set({ isFocusMode }),
+  toggleFocusMode: () => set((state) => ({ isFocusMode: !state.isFocusMode })),
+  setFocusedNodeId: (focusedNodeId) => set({ focusedNodeId }),
   setIdentity: (identity) => set({ identity }),
   setGraphs: (graphs) => set({ graphs }),
   setGraph: (graph) =>
     set((state) => ({
       graph,
+      queryType: 'simple',
       selectedNodeIds: graph.nodes
         .slice(0, state.identity?.tier === 'ANONYMOUS' ? 2 : undefined)
         .map((node) => node.id),
+      previewNodeIds: [],
+      crawlStartingNodeIds: [],
       expandedNodeIds: [],
       results: undefined,
+      crawlResults: undefined,
+      minRelevanceScore: 0,
       mode: 'IDLE',
       isEditing: false,
       activeSourceId: undefined,
       activeMatch: undefined,
+      isFocusMode: false,
+      focusedNodeId: undefined,
     })),
   setMode: (mode) => set({ mode }),
+  setQueryType: (queryType) =>
+    set((state) => {
+      let nextMode = state.mode;
+      if (queryType === 'crawl') {
+        if (state.mode === 'IDLE' || state.mode === 'CONTEXT_SELECTION') {
+          nextMode = 'CRAWL_SELECTION';
+        }
+      } else {
+        if (state.mode === 'CRAWL_SELECTION') {
+          nextMode = 'CONTEXT_SELECTION';
+        }
+      }
+      return { queryType, mode: nextMode };
+    }),
   setHistory: (history) => set({ history }),
   setResults: (results) =>
-    set((state) => ({
+    set({
       results,
+      crawlResults: undefined,
       mode: results ? 'VISUAL_RESULTS' : 'IDLE',
-      activeSourceId: results ? state.activeSourceId : undefined,
-      activeMatch: results ? state.activeMatch : undefined,
+      activeSourceId: undefined,
+      activeMatch: undefined,
       ...(results
         ? {}
         : {
             expandedNodeIds: [],
-            graph: state.graph
-              ? {
-                  ...state.graph,
-                  nodes: layoutGraph(state.graph.nodes, state.graph.edges, []),
-                }
-              : undefined,
           }),
-    })),
+    }),
+  setCrawlResults: (crawlResults) =>
+    set({
+      crawlResults,
+      results: undefined,
+      mode: crawlResults ? 'CRAWL_RESULTS' : 'IDLE',
+      activeSourceId: undefined,
+      activeMatch: undefined,
+    }),
+  setMinRelevanceScore: (minRelevanceScore) => set({ minRelevanceScore }),
+  clearResults: () =>
+    set({
+      results: undefined,
+      crawlResults: undefined,
+      minRelevanceScore: 0,
+      mode: 'IDLE',
+      previewNodeIds: [],
+      crawlStartingNodeIds: [],
+      activeSourceId: undefined,
+      activeMatch: undefined,
+      activeLightboxFigure: null,
+      expandedNodeIds: [],
+      isFocusMode: false,
+      focusedNodeId: undefined,
+    }),
   collapseAllNodes: () =>
     set((state) => {
-      if (!state.graph || state.expandedNodeIds.length === 0) return state;
+      if (state.expandedNodeIds.length === 0) return state;
       return {
         expandedNodeIds: [],
-        graph: {
-          ...state.graph,
-          nodes: layoutGraph(state.graph.nodes, state.graph.edges, []),
-        },
       };
     }),
   toggleNodeSelection: (id) =>
@@ -148,6 +230,14 @@ export const useGraphStore = create<GraphStore>((set) => ({
         : [...state.selectedNodeIds, id],
     })),
   setSelectedNodeIds: (selectedNodeIds) => set({ selectedNodeIds }),
+  toggleCrawlStartingNode: (id) =>
+    set((state) => ({
+      crawlStartingNodeIds: state.crawlStartingNodeIds.includes(id)
+        ? state.crawlStartingNodeIds.filter((nodeId) => nodeId !== id)
+        : [...state.crawlStartingNodeIds, id],
+    })),
+  setCrawlStartingNodeIds: (crawlStartingNodeIds) =>
+    set({ crawlStartingNodeIds }),
   toggleExpanded: (id) =>
     set((state) => {
       if (!state.graph) return state;
@@ -156,19 +246,71 @@ export const useGraphStore = create<GraphStore>((set) => ({
         : [...state.expandedNodeIds, id];
       return {
         expandedNodeIds,
-        graph: {
-          ...state.graph,
-          nodes: layoutGraph(
-            state.graph.nodes,
-            state.graph.edges,
-            expandedNodeIds,
-          ),
-        },
       };
     }),
   setActiveSourceId: (activeSourceId) =>
     set({ activeSourceId, activeMatch: undefined }),
   setActiveMatch: (activeMatch) => set({ activeMatch }),
+  activeLightboxFigure: null,
+  openLightbox: (activeLightboxFigure) => set({ activeLightboxFigure }),
+  closeLightbox: () => set({ activeLightboxFigure: null }),
+  addNodeFromCrop: (cropBase64, title) => {
+    let createdId: string | null = null;
+    set((state) => {
+      if (!state.graph) return state;
+      const index = state.graph.nodes.length + 1;
+      const targetParent = state.focusedNodeId
+        ? state.graph.nodes.find((n) => n.id === state.focusedNodeId)
+        : state.graph.nodes[0];
+      const targetX = targetParent ? targetParent.position.x + 320 : 200;
+      let targetY = targetParent ? targetParent.position.y : 200;
+
+      let collision = true;
+      while (collision) {
+        const found = state.graph.nodes.some(
+          (n) =>
+            Math.abs(n.position.x - targetX) < 40 &&
+            Math.abs(n.position.y - targetY) < 60,
+        );
+        if (found) {
+          targetY += 120;
+        } else {
+          collision = false;
+        }
+      }
+
+      createdId = crypto.randomUUID();
+      const nodeTitle = title ? `Crop: ${title}` : `Figure Crop ${index}`;
+      const newNode: GraphNode = {
+        id: createdId,
+        position: { x: targetX, y: targetY },
+        data: {
+          title: nodeTitle,
+          category: 'Figure ROI',
+          description: `![${nodeTitle}](${cropBase64})`,
+        },
+      };
+
+      const edges = [...state.graph.edges];
+      if (targetParent) {
+        edges.push({
+          id: `e-${targetParent.id}-${createdId}`,
+          source: targetParent.id,
+          target: createdId,
+        });
+      }
+
+      return {
+        graph: {
+          ...state.graph,
+          nodes: [...state.graph.nodes, newNode],
+          edges,
+        },
+        selectedNodeIds: [createdId],
+      };
+    });
+    return createdId;
+  },
   setEditingNodeId: (editingNodeId) => set({ editingNodeId }),
   setPendingDeleteNodeId: (pendingDeleteNodeId) => set({ pendingDeleteNodeId }),
   setEditing: (isEditing) => set({ isEditing }),
@@ -212,16 +354,43 @@ export const useGraphStore = create<GraphStore>((set) => ({
     set((state) => {
       if (!state.graph) return state;
       const index = state.graph.nodes.length + 1;
+      const targetX = 80;
+      let targetY = 100;
+      const rootNodes = state.graph.nodes.filter(
+        (node) => !state.graph?.edges.some((edge) => edge.target === node.id),
+      );
+      if (rootNodes.length > 0) {
+        const maxY = Math.max(...rootNodes.map((n) => n.position.y));
+        targetY = maxY + 140;
+      }
+      let collision = true;
+      while (collision) {
+        const found = state.graph.nodes.some(
+          (n) =>
+            Math.abs(n.position.x - targetX) < 40 &&
+            Math.abs(n.position.y - targetY) < 60,
+        );
+        if (found) {
+          targetY += 120;
+        } else {
+          collision = false;
+        }
+      }
       const node: GraphNode = {
         id: crypto.randomUUID(),
-        position: { x: 80 + index * 20, y: 100 + index * 32 },
+        position: { x: targetX, y: targetY },
         data: {
           title: `Untitled topic ${index}`,
           category: 'New topic',
           description: '',
         },
       };
-      return { graph: { ...state.graph, nodes: [...state.graph.nodes, node] } };
+      return {
+        graph: { ...state.graph, nodes: [...state.graph.nodes, node] },
+        expandedNodeIds: state.expandedNodeIds.includes(node.id)
+          ? state.expandedNodeIds
+          : [...state.expandedNodeIds, node.id],
+      };
     }),
   addChild: (parentId) =>
     set((state) => {
@@ -229,9 +398,44 @@ export const useGraphStore = create<GraphStore>((set) => ({
       const parent = state.graph.nodes.find((node) => node.id === parentId);
       if (!parent) return state;
       const index = state.graph.nodes.length + 1;
+
+      const existingChildEdges = state.graph.edges.filter(
+        (edge) => edge.source === parentId,
+      );
+      const existingChildIds = new Set(
+        existingChildEdges.map((edge) => edge.target),
+      );
+      const existingChildren = state.graph.nodes.filter((node) =>
+        existingChildIds.has(node.id),
+      );
+
+      const targetX = parent.position.x + 300;
+      let targetY: number;
+
+      if (existingChildren.length === 0) {
+        targetY = parent.position.y;
+      } else {
+        const maxY = Math.max(...existingChildren.map((c) => c.position.y));
+        targetY = maxY + 130;
+      }
+
+      let collision = true;
+      while (collision) {
+        const found = state.graph.nodes.some(
+          (n) =>
+            Math.abs(n.position.x - targetX) < 40 &&
+            Math.abs(n.position.y - targetY) < 60,
+        );
+        if (found) {
+          targetY += 120;
+        } else {
+          collision = false;
+        }
+      }
+
       const node: GraphNode = {
         id: crypto.randomUUID(),
-        position: { x: parent.position.x + 300, y: parent.position.y + 40 },
+        position: { x: targetX, y: targetY },
         data: {
           title: `Untitled topic ${index}`,
           category: 'New topic',
@@ -247,6 +451,9 @@ export const useGraphStore = create<GraphStore>((set) => ({
             { id: crypto.randomUUID(), source: parentId, target: node.id },
           ],
         },
+        expandedNodeIds: state.expandedNodeIds.includes(node.id)
+          ? state.expandedNodeIds
+          : [...state.expandedNodeIds, node.id],
       };
     }),
   removeNode: (id) =>

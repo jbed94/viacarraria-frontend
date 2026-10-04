@@ -431,7 +431,7 @@ describe('ResultsSidebar', () => {
     expect(resizeHandle).toHaveAttribute('aria-orientation', 'vertical');
 
     const sidebar = screen.getByRole('complementary', { name: /results/i });
-    expect(sidebar).toHaveStyle({ width: '380px' });
+    expect(sidebar).toHaveStyle({ width: '420px' });
 
     // Double click toggles to expanded width
     fireEvent.doubleClick(resizeHandle);
@@ -439,7 +439,7 @@ describe('ResultsSidebar', () => {
 
     // Double click again returns to default width
     fireEvent.doubleClick(resizeHandle);
-    expect(sidebar).toHaveStyle({ width: '380px' });
+    expect(sidebar).toHaveStyle({ width: '420px' });
   });
 
   it('opens Search & Query Answering Guide dialog when info button is clicked', async () => {
@@ -480,5 +480,182 @@ describe('ResultsSidebar', () => {
       await screen.findByText('Search & Query Answering Guide'),
     ).toBeInTheDocument();
     expect(await screen.findByText('Indicators & Legend')).toBeInTheDocument();
+  });
+
+  it('opens citation inspector on match click with node focus and doc link, and allows closing it', () => {
+    const onSelectNode = vi.fn();
+    const onOpenSource = vi.fn();
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query-1',
+          results: [
+            {
+              nodeId: directMatch.nodeId,
+              matchCount: 1,
+              chunks: [directMatch],
+            },
+          ],
+          matchedNodeIds: [directMatch.nodeId],
+          remaining: 0,
+          extendedSearch: false,
+          extendedContextCount: 0,
+        }}
+        onOpenSource={onOpenSource}
+        onOpenMatch={vi.fn()}
+        onSelectNode={onSelectNode}
+      />,
+    );
+
+    expect(
+      screen.queryByRole('region', { name: 'Citation Inspector' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Direct query match'));
+
+    const inspector = screen.getByRole('region', {
+      name: 'Citation Inspector',
+    });
+    expect(inspector).toBeInTheDocument();
+    expect(
+      within(inspector).getByText('Citation Inspector'),
+    ).toBeInTheDocument();
+    expect(within(inspector).getByText('Direct Notes.md')).toBeInTheDocument();
+
+    // Click Focus Node
+    fireEvent.click(
+      within(inspector).getByRole('button', { name: /focus node/i }),
+    );
+    expect(onSelectNode).toHaveBeenCalledWith(directMatch.nodeId);
+
+    // Click Open Document
+    fireEvent.click(
+      within(inspector).getByRole('button', { name: /open document/i }),
+    );
+    expect(onOpenSource).toHaveBeenCalledWith(directMatch.sourceId);
+
+    // Click Close button
+    fireEvent.click(
+      within(inspector).getByRole('button', {
+        name: 'Close citation inspector',
+      }),
+    );
+    expect(
+      screen.queryByRole('region', { name: 'Citation Inspector' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders image thumbnail preview and figure badge when imageAssetUrl is present in matches and leadAnswer', () => {
+    const imageMatch = {
+      ...directMatch,
+      imageAssetUrl: '/api/sources/source-match/assets/fig1.png',
+      content: 'System architecture block diagram',
+    };
+
+    render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query-img',
+          leadAnswer: {
+            chunk: imageMatch,
+            score: 0.95,
+            answerType: 'definitional',
+          },
+          results: [
+            {
+              nodeId: imageMatch.nodeId,
+              matchCount: 1,
+              chunks: [imageMatch],
+            },
+          ],
+          matchedNodeIds: [imageMatch.nodeId],
+          remaining: 5,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={vi.fn()}
+      />,
+    );
+
+    // Verify Figure badges are rendered
+    const figureBadges = screen.getAllByText('Figure');
+    expect(figureBadges.length).toBeGreaterThanOrEqual(1);
+
+    // Verify image preview thumbnails are rendered with correct src
+    const thumbnails = screen.getAllByRole('img');
+    expect(thumbnails.length).toBeGreaterThanOrEqual(1);
+    expect(thumbnails[0]?.getAttribute('src')).toBe(
+      '/api/sources/source-match/assets/fig1.png',
+    );
+  });
+
+  it('renders exact and synonym search highlights in lead answer, match snippets, and citation inspector', () => {
+    const onOpenMatch = vi.fn();
+    const highlightChunk = {
+      graphId: 'graph-1',
+      sourceId: 'source-k8s',
+      sourceName: 'Kubernetes Guide.md',
+      nodeId: 'node-k8s',
+      content:
+        'Kubernetes cluster deployment and container orchestration notes.',
+      context:
+        'Kubernetes cluster deployment and container orchestration context notes.',
+      startChar: 0,
+      endChar: 65,
+      pageNum: 1,
+      score: 0.95,
+      kind: 'MATCH' as const,
+    };
+
+    const { container } = render(
+      <ResultsSidebar
+        results={{
+          queryId: 'query-hl',
+          query: 'deployment',
+          expandedKeywords: ['container orchestration', 'kubernetes'],
+          leadAnswer: {
+            chunk: highlightChunk,
+            score: 0.95,
+            answerType: 'definitional',
+          },
+          results: [
+            {
+              nodeId: highlightChunk.nodeId,
+              matchCount: 1,
+              chunks: [highlightChunk],
+            },
+          ],
+          matchedNodeIds: [highlightChunk.nodeId],
+          remaining: 1,
+        }}
+        onOpenSource={vi.fn()}
+        onOpenMatch={onOpenMatch}
+      />,
+    );
+
+    // Verify exact highlight for 'deployment'
+    const exactHighlights = container.querySelectorAll(
+      '.search-highlight-exact',
+    );
+    expect(exactHighlights.length).toBeGreaterThanOrEqual(1);
+    expect(exactHighlights[0]?.textContent).toBe('deployment');
+
+    // Verify synonym highlights for 'Kubernetes' and 'container orchestration'
+    const synonymHighlights = container.querySelectorAll(
+      '.search-highlight-synonym',
+    );
+    expect(synonymHighlights.length).toBeGreaterThanOrEqual(2);
+
+    // Click lead answer citation header to open Citation Inspector
+    fireEvent.click(screen.getByTitle('View citation in Kubernetes Guide.md'));
+    expect(screen.getByText('Citation Inspector')).toBeInTheDocument();
+
+    const citationBlock = container.querySelector('.citation-text-block');
+    expect(citationBlock).toBeInTheDocument();
+    expect(
+      citationBlock?.querySelectorAll('.search-highlight-exact').length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      citationBlock?.querySelectorAll('.search-highlight-synonym').length,
+    ).toBeGreaterThanOrEqual(1);
   });
 });

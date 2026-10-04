@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  api,
   ApiError,
+  activeUploadRegistry,
+  api,
   buildUploadSessionKey,
   CHUNK_SIZE,
+  cancelActiveUpload,
   clearUploadSession,
   computeSha256,
   computeSha256ViaWorker,
   createUploadController,
-  activeUploadRegistry,
   getActiveUploadController,
-  pauseActiveUpload,
-  resumeActiveUpload,
-  cancelActiveUpload,
   getOptimalChunkSize,
   getStoredUploadSession,
+  pauseActiveUpload,
+  resumeActiveUpload,
   saveUploadSession,
   subscribeMaintenanceMode,
   terminateHashWorker,
@@ -1096,27 +1096,6 @@ describe('Frontend API Client - Resumable & Presigned S3 Uploads', () => {
       );
     });
 
-    it('exportSubscriptionEvents downloads blob', async () => {
-      const mockBlob = new Blob(['{"events":[]}'], {
-        type: 'application/json',
-      });
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        blob: async () => mockBlob,
-      });
-      globalThis.fetch = fetchMock as any;
-
-      const blob = await api.admin.exportSubscriptionEvents({ format: 'json' });
-      expect(blob).toBe(mockBlob);
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '/admin/subscriptions/events/export?format=json',
-        ),
-        expect.objectContaining({ credentials: 'include' }),
-      );
-    });
-
     it('batchUsers posts batch payload to /admin/users/batch', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -1311,6 +1290,243 @@ describe('Frontend API Client - Resumable & Presigned S3 Uploads', () => {
       const res = await api.system.checkStatus();
       expect(res.status).toBe('unreachable');
       expect(res.maintenanceMode).toBe(false);
+    });
+  });
+
+  describe('Ad Telemetry Client APIs', () => {
+    it('api.ads.sendTelemetry and api.ads.getAnalytics call the correct endpoints', async () => {
+      const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/plans/ads/telemetry')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ success: true }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            totalImpressions: 100,
+            totalCulled: 25,
+            averageViewabilitySeconds: 20.0,
+            estimatedRevenueUsd: 0.15,
+            topGraphs: [
+              {
+                graphId: 'g-123',
+                graphName: 'Test Graph',
+                isPublic: true,
+                impressions: 80,
+                activeViewableSeconds: 1600,
+                estimatedRevenueUsd: 0.12,
+              },
+            ],
+          }),
+        };
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const telemRes = await api.ads.sendTelemetry({
+        eventType: 'impression',
+        format: 'card',
+        slotId: 'slot-1',
+        graphId: 'g-123',
+      });
+      expect(telemRes.success).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/plans/ads/telemetry'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            eventType: 'impression',
+            format: 'card',
+            slotId: 'slot-1',
+            graphId: 'g-123',
+          }),
+        }),
+      );
+
+      const analytics = await api.ads.getAnalytics();
+      expect(analytics.totalImpressions).toBe(100);
+      expect(analytics.topGraphs).toHaveLength(1);
+      expect(analytics.topGraphs![0]!.graphId).toBe('g-123');
+      expect(analytics.totalCulled).toBe(25);
+    });
+
+    it('api.ads.getConfig calls /plans/ads/config', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          effectiveEcpm: 2.5,
+          canvasAdDensity: 40,
+          maxCanvasAds: 8,
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const config = await api.ads.getConfig();
+      expect(config.effectiveEcpm).toBe(2.5);
+      expect(config.canvasAdDensity).toBe(40);
+      expect(config.maxCanvasAds).toBe(8);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/plans/ads/config'),
+        expect.anything(),
+      );
+    });
+
+    it('api.admin.getAdAnalytics calls /admin/ads/analytics', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          totalImpressions: 500,
+          totalCulled: 150,
+          gpuSavingsPercentage: 23.1,
+          estimatedRevenueUsd: 0.75,
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.admin.getAdAnalytics();
+      expect(res.totalImpressions).toBe(500);
+      expect(res.gpuSavingsPercentage).toBe(23.1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/ads/analytics'),
+        expect.any(Object),
+      );
+    });
+
+    it('api.admin.triggerAdRollup calls /admin/ads/telemetry/rollup with targetDate', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, rowsRolledUp: 18 }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.admin.triggerAdRollup('2026-09-16');
+      expect(res.success).toBe(true);
+      expect(res.rowsRolledUp).toBe(18);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/ads/telemetry/rollup'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetDate: '2026-09-16' }),
+        }),
+      );
+    });
+
+    it('api.admin.purgeOldAdTelemetry calls /admin/ads/telemetry/purge with retentionDays', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          purgedCount: 42,
+          retentionDays: 90,
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.admin.purgeOldAdTelemetry(90);
+      expect(res.success).toBe(true);
+      expect(res.purgedCount).toBe(42);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/ads/telemetry/purge'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ retentionDays: 90 }),
+        }),
+      );
+    });
+
+    it('api.admin.getAdTelemetryStatus calls /admin/ads/telemetry/status', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          totalEventsCount: 1500,
+          totalRollupsCount: 45,
+          oldestEventDate: '2026-06-01T00:00:00.000Z',
+          newestEventDate: '2026-09-17T10:00:00.000Z',
+          lastRollupDate: '2026-09-16',
+          retentionDays: 90,
+          autoRollupEnabled: true,
+          scheduleIntervalHours: 24,
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.admin.getAdTelemetryStatus();
+      expect(res.totalEventsCount).toBe(1500);
+      expect(res.totalRollupsCount).toBe(45);
+      expect(res.retentionDays).toBe(90);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/ads/telemetry/status'),
+        expect.any(Object),
+      );
+    });
+
+    it('api.cancelCrawl posts to /search/crawl/:jobId/cancel', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobId: 'job-cancel-999',
+          cancelled: true,
+          message: 'Crawl job cancelled',
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.cancelCrawl('job-cancel-999');
+      expect(res.cancelled).toBe(true);
+      expect(res.jobId).toBe('job-cancel-999');
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/search/crawl/job-cancel-999/cancel'),
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
+    it('api.crawl passes jobId and abort signal options', async () => {
+      const controller = new AbortController();
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          queryId: 'q-1',
+          jobId: 'custom-job-1',
+          queryType: 'crawl',
+          nodes: [],
+          edges: [],
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const res = await api.crawl(
+        'g-1',
+        'test query',
+        ['n-1'],
+        'forward',
+        'default',
+        'medium',
+        false,
+        undefined,
+        undefined,
+        'custom-job-1',
+        { signal: controller.signal },
+      );
+
+      expect(res.jobId).toBe('custom-job-1');
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/search/crawl'),
+        expect.objectContaining({
+          method: 'POST',
+          signal: controller.signal,
+          body: expect.stringContaining('"jobId":"custom-job-1"'),
+        }),
+      );
     });
   });
 });

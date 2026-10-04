@@ -11,16 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, setAdminKey, triggerBlobDownload } from '../../lib/api';
 import { useGraphStore } from '../../store/graph-store';
 import type {
-  AdminBillingEvent,
+  AdminAuditEvent,
   AdminGraph,
   AdminGraphDetails,
   AdminOverviewStats,
   AdminSystemSettings,
   AdminSystemStatus,
   AdminUser,
-  AdminAuditEvent,
-  AuditLogArchive,
   AdminUserDetails,
+  AdAnalyticsSummary,
+  AuditLogArchive,
   GraphArchiveItem,
   RetentionAuditStats,
 } from '../../types/api';
@@ -55,11 +55,7 @@ vi.mock('../../lib/api', () => ({
       runRetentionSweep: vi.fn(),
       restoreArchive: vi.fn(),
       deleteArchive: vi.fn(),
-      subscriptionEvents: vi.fn(),
-      grantSubscription: vi.fn(),
-      revokeSubscription: vi.fn(),
       exportUsers: vi.fn(),
-      exportSubscriptionEvents: vi.fn(),
       batchUsers: vi.fn(),
       batchGraphs: vi.fn(),
       getSettings: vi.fn(),
@@ -69,6 +65,16 @@ vi.mock('../../lib/api', () => ({
       getAuditArchives: vi.fn(),
       getAuditArchiveDownloadUrl: vi.fn(),
       previewAuditArchive: vi.fn(),
+      getPlans: vi.fn(),
+      getPlan: vi.fn(),
+      updatePlan: vi.fn(),
+      updateUserStorageLimit: vi.fn(),
+      setUserMultiplier: vi.fn(),
+    },
+    ads: {
+      sendTelemetry: vi.fn(),
+      getAnalytics: vi.fn(),
+      getConfig: vi.fn(),
     },
   },
 }));
@@ -76,24 +82,19 @@ vi.mock('../../lib/api', () => ({
 const mockOverviewStats: AdminOverviewStats = {
   users: {
     total: 240,
-    pro: 45,
-    free: 180,
+    registered: 225,
     anonymous: 15,
     newLast30Days: 28,
   },
-  revenue: {
-    monthlyRecurringRevenue: 1350,
-    proPriceUsd: 29.99,
-    activeSubscriptions: 45,
-    recentEvents: [
-      {
-        id: 'evt-1',
-        userId: 'usr-1',
-        eventType: 'invoice.payment_succeeded',
-        provider: 'stripe',
-        createdAt: '2026-09-05T12:00:00.000Z',
-      },
-    ],
+  similarityQueue: {
+    occupation: 'low',
+    anonymousThroughputPerMinute: 30,
+    registeredThroughputPerMinute: 120,
+  },
+  storageQuota: {
+    defaultStorageLimitMb: 100,
+    totalStorageBytes: 52428800,
+    totalSources: 85,
   },
   requests: {
     totalQueries: 3600,
@@ -123,14 +124,51 @@ const mockOverviewStats: AdminOverviewStats = {
   },
 };
 
+const mockAdAnalytics: AdAnalyticsSummary = {
+  totalImpressions: 1200,
+  totalCulled: 300,
+  totalRefreshes: 150,
+  averageViewabilitySeconds: 22.5,
+  totalActiveViewableSeconds: 27000,
+  consentBreakdown: {
+    personalized: 850,
+    contextual: 250,
+    declined: 100,
+  },
+  estimatedRevenueUsd: 1.8,
+  effectiveEcpm: 1.5,
+  gpuSavingsPercentage: 20.0,
+  range: '30d',
+  topGraphs: [
+    {
+      graphId: 'g-101',
+      graphName: 'Distributed Systems Graph',
+      isPublic: true,
+      impressions: 750,
+      activeViewableSeconds: 16875,
+      estimatedRevenueUsd: 1.13,
+    },
+    {
+      graphId: 'g-102',
+      graphName: 'Neural Networks Architecture',
+      isPublic: false,
+      impressions: 450,
+      activeViewableSeconds: 10125,
+      estimatedRevenueUsd: 0.67,
+    },
+  ],
+};
+
 const mockUser: AdminUser = {
   id: 'usr-1',
   name: 'Test User',
   email: 'test@example.com',
   username: 'testuser',
   isAnonymous: false,
-  subscriptionTier: 'PRO',
-  subscriptionExpiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
+  subscriptionTier: 'REGISTERED',
+  subscriptionExpiresAt: null,
+  storageLimitMb: 100,
+  usedStorageBytes: 15728640,
   preferredLanguage: 'en',
   createdAt: '2026-08-01T00:00:00.000Z',
   updatedAt: '2026-09-01T00:00:00.000Z',
@@ -230,18 +268,6 @@ const mockArchive: GraphArchiveItem = {
   expiresAt: new Date(Date.now() + 86400000 * 15).toISOString(),
 };
 
-const mockBillingEvent: AdminBillingEvent = {
-  id: 'evt-1',
-  userId: 'usr-1',
-  provider: 'stripe',
-  externalEventId: 'evt_stripe_123',
-  eventType: 'invoice.payment_succeeded',
-  payload: { invoiceId: 'inv-9988' },
-  createdAt: '2026-09-05T12:00:00.000Z',
-  userEmail: 'test@example.com',
-  userName: 'Test User',
-};
-
 const mockSystemStatus: AdminSystemStatus = {
   health: {
     status: 'ok',
@@ -276,15 +302,17 @@ const mockSystemStatus: AdminSystemStatus = {
 const mockSystemSettings: AdminSystemSettings = {
   retentionDays: 90,
   retentionGraceDays: 7,
-  freeTierLimits: {
-    maxNodes: 100,
-    maxSourcesPerGraph: 5,
-    maxSourceSizeBytes: 26214400,
+  similarityQuota: {
+    anonymousThroughputPerMinute: 30,
+    registeredThroughputPerMinute: 120,
   },
-  proTierLimits: {
-    maxNodes: 5000,
-    maxSourcesPerGraph: 50,
-    maxSourceSizeBytes: 104857600,
+  storageConfig: {
+    defaultStorageLimitMb: 100,
+  },
+  adConfig: {
+    effectiveEcpm: 1.5,
+    canvasAdDensity: 35,
+    maxCanvasAds: 5,
   },
   rateLimits: {
     anonymousPerMinute: 30,
@@ -296,6 +324,9 @@ const mockSystemSettings: AdminSystemSettings = {
     allowedIps: ['127.0.0.1', '::1'],
     exemptUserIds: ['usr-exempt-1'],
     exemptRoles: ['admin'],
+  },
+  synonymsConfig: {
+    k8s: ['kubernetes', 'container orchestration'],
   },
   updatedAt: '2026-09-01T00:00:00.000Z',
 };
@@ -331,6 +362,13 @@ describe('Admin Portal Tests', () => {
       identity: { id: 'admin-1', email: 'admin@viacarraria.io', role: 'admin' },
     });
     vi.mocked(api.admin.overview).mockResolvedValue(mockOverviewStats);
+    vi.mocked(api.ads.getAnalytics).mockResolvedValue(mockAdAnalytics);
+    vi.mocked(api.ads.sendTelemetry).mockResolvedValue({ success: true });
+    vi.mocked(api.ads.getConfig).mockResolvedValue({
+      effectiveEcpm: 1.5,
+      canvasAdDensity: 35,
+      maxCanvasAds: 5,
+    });
     vi.mocked(api.admin.users).mockResolvedValue({
       users: [mockUser],
       pagination: {
@@ -364,21 +402,9 @@ describe('Admin Portal Tests', () => {
     });
     vi.mocked(api.admin.retentionAudit).mockResolvedValue(mockRetentionAudit);
     vi.mocked(api.admin.retentionArchives).mockResolvedValue([mockArchive]);
-    vi.mocked(api.admin.subscriptionEvents).mockResolvedValue({
-      events: [mockBillingEvent],
-      pagination: {
-        total: 1,
-        page: 1,
-        limit: 15,
-        totalPages: 1,
-      },
-    });
     vi.mocked(api.admin.systemStatus).mockResolvedValue(mockSystemStatus);
     vi.mocked(api.admin.exportUsers).mockResolvedValue(
       new Blob(['id,name\nusr-1,Alice']),
-    );
-    vi.mocked(api.admin.exportSubscriptionEvents).mockResolvedValue(
-      new Blob(['id,eventType\nevt-1,invoice.payment_succeeded']),
     );
     vi.mocked(api.admin.batchUsers).mockResolvedValue({
       success: true,
@@ -393,14 +419,32 @@ describe('Admin Portal Tests', () => {
     vi.mocked(api.admin.getSettings).mockResolvedValue(mockSystemSettings);
     vi.mocked(api.admin.updateSettings).mockImplementation(async (patch) => ({
       ...mockSystemSettings,
-      ...patch,
-      freeTierLimits: {
-        ...mockSystemSettings.freeTierLimits,
-        ...(patch.freeTierLimits ?? {}),
+      retentionDays: patch.retentionDays ?? mockSystemSettings.retentionDays,
+      retentionGraceDays:
+        patch.retentionGraceDays ?? mockSystemSettings.retentionGraceDays,
+      maintenanceMode:
+        patch.maintenanceMode ?? mockSystemSettings.maintenanceMode,
+      similarityQuota: {
+        ...mockSystemSettings.similarityQuota,
+        ...(patch.similarityQuota ?? {}),
       },
-      proTierLimits: {
-        ...mockSystemSettings.proTierLimits,
-        ...(patch.proTierLimits ?? {}),
+      storageConfig: {
+        ...mockSystemSettings.storageConfig,
+        ...(patch.storageConfig ?? {}),
+      },
+      adConfig: {
+        effectiveEcpm:
+          patch.adConfig?.effectiveEcpm ??
+          mockSystemSettings.adConfig?.effectiveEcpm ??
+          1.5,
+        canvasAdDensity:
+          patch.adConfig?.canvasAdDensity ??
+          mockSystemSettings.adConfig?.canvasAdDensity ??
+          35,
+        maxCanvasAds:
+          patch.adConfig?.maxCanvasAds ??
+          mockSystemSettings.adConfig?.maxCanvasAds ??
+          5,
       },
       rateLimits: {
         ...mockSystemSettings.rateLimits,
@@ -410,6 +454,7 @@ describe('Admin Portal Tests', () => {
         ...mockSystemSettings.maintenanceExemptions,
         ...(patch.maintenanceExemptions ?? {}),
       },
+      synonymsConfig: patch.synonymsConfig ?? mockSystemSettings.synonymsConfig,
       updatedAt: '2026-09-06T22:00:00.000Z',
     }));
     vi.mocked(api.admin.getAuditLogs).mockResolvedValue({
@@ -446,6 +491,62 @@ describe('Admin Portal Tests', () => {
       limit: 25,
       offset: 0,
     });
+    vi.mocked(api.admin.getPlans).mockResolvedValue([
+      {
+        tier: 'ANONYMOUS',
+        version: 1,
+        name: 'Guest / Anonymous Tier',
+        description: 'Unauthenticated guests',
+        renewableCredits: 0,
+        renewalPeriodDays: 0,
+        priceUsd: 0,
+        adsEnabled: true,
+        planMultiplier: 1.0,
+        limits: {
+          maxNodes: 0,
+          maxSourcesPerGraph: 0,
+          maxSourceSizeBytes: 0,
+          allowPrivateGraphs: false,
+          extendedContext: false,
+        },
+        costConfig: {
+          queryBaseCost: 0,
+          crawlBaseCost: 0,
+          crawlStepCost: 0,
+          sourceBaseCost: 0,
+          sourceChunkMultiplier: 0,
+        },
+        grandfatheringPolicy: 'RENEWAL_MIGRATION',
+        effectiveAt: '2026-09-01T00:00:00.000Z',
+      },
+      {
+        tier: 'REGISTERED',
+        version: 1,
+        name: 'Registered Community Tier',
+        description: 'Free registered tier with unlimited graphs',
+        renewableCredits: 0,
+        renewalPeriodDays: 0,
+        priceUsd: 0,
+        adsEnabled: true,
+        planMultiplier: 1.0,
+        limits: {
+          maxNodes: 100000,
+          maxSourcesPerGraph: 1000,
+          maxSourceSizeBytes: 52428800,
+          allowPrivateGraphs: true,
+          extendedContext: true,
+        },
+        costConfig: {
+          queryBaseCost: 0,
+          crawlBaseCost: 0,
+          crawlStepCost: 0,
+          sourceBaseCost: 0,
+          sourceChunkMultiplier: 0,
+        },
+        grandfatheringPolicy: 'RENEWAL_MIGRATION',
+        effectiveAt: '2026-09-01T00:00:00.000Z',
+      },
+    ]);
 
     useGraphStore.getState().setIdentity({
       userId: 'admin-1',
@@ -453,7 +554,7 @@ describe('Admin Portal Tests', () => {
       username: 'admin',
       isGuest: false,
       role: 'admin',
-      tier: 'PRO',
+      tier: 'REGISTERED',
     });
   });
 
@@ -566,7 +667,7 @@ describe('Admin Portal Tests', () => {
         screen.getByRole('button', { name: /Retention & Archives/i }),
       ).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: /Revenue & Billing/i }),
+        screen.getByRole('button', { name: /Plans & Tiers/i }),
       ).toBeInTheDocument();
       expect(
         screen.getByRole('button', { name: /Cluster & Proxy Health/i }),
@@ -595,7 +696,9 @@ describe('Admin Portal Tests', () => {
 
       expect(await screen.findByText('test@example.com')).toBeInTheDocument();
       expect(screen.getByText('@testuser')).toBeInTheDocument();
-      expect(screen.getAllByText('PRO').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('REGISTERED').length).toBeGreaterThanOrEqual(
+        1,
+      );
     });
 
     it('switches to Knowledge Graphs tab and displays graphs list with canvas action', async () => {
@@ -639,18 +742,19 @@ describe('Admin Portal Tests', () => {
       ).toBeInTheDocument();
     });
 
-    it('switches to Revenue & Billing tab and displays subscription telemetry', async () => {
+    it('switches to Plans & Tiers tab and displays plan configurations', async () => {
       render(<AdminPage onBackToCanvas={vi.fn()} />);
 
-      const billingNavBtn = await screen.findByRole('button', {
-        name: /Revenue & Billing/i,
+      const plansNavBtn = await screen.findByRole('button', {
+        name: /Plans & Tiers/i,
       });
-      fireEvent.click(billingNavBtn);
+      fireEvent.click(plansNavBtn);
 
       expect(
-        await screen.findByText(/Subscriptions & Revenue Management/i),
+        await screen.findByText(/System Plans & Quota Configuration/i),
       ).toBeInTheDocument();
-      expect(screen.getByText('invoice.payment_succeeded')).toBeInTheDocument();
+      expect(screen.getByTestId('tier-tab-registered')).toBeInTheDocument();
+      expect(screen.getByTestId('tier-tab-anonymous')).toBeInTheDocument();
     });
 
     it('switches to Cluster & Proxy Health tab and displays service health cards', async () => {
@@ -693,10 +797,10 @@ describe('Admin Portal Tests', () => {
       render(<AdminPage onBackToCanvas={vi.fn()} />);
 
       expect(await screen.findByText('240')).toBeInTheDocument(); // Total users
-      expect(screen.getByText(/45 Pro/i)).toBeInTheDocument(); // Pro users
+      expect(screen.getByText(/225 Registered/i)).toBeInTheDocument(); // Registered users
       expect(screen.getByText(/180\/hr Live/i)).toBeInTheDocument(); // Requests/hr
-      expect(screen.getByText('$1350')).toBeInTheDocument(); // MRR
-      expect(screen.getByText('50 MB')).toBeInTheDocument(); // Storage
+      expect(screen.getByText(/Similarity Search Quota/i)).toBeInTheDocument();
+      expect(screen.getAllByText('50 MB').length).toBeGreaterThanOrEqual(1); // Storage
       expect(
         screen.getByText(/Hourly Search & Retrieval Velocity/i),
       ).toBeInTheDocument();
@@ -727,7 +831,7 @@ describe('Admin Portal Tests', () => {
       expect(
         screen.getByText(/Test User \(test@example\.com\)/i),
       ).toBeInTheDocument();
-      expect(screen.getByText(/15 MB/i)).toBeInTheDocument(); // Storage
+      expect(screen.getAllByText(/15 MB/i).length).toBeGreaterThanOrEqual(1); // Storage
     });
 
     it('opens edit user modal and saves subscription tier changes', async () => {
@@ -753,9 +857,42 @@ describe('Admin Portal Tests', () => {
         expect(api.admin.updateUser).toHaveBeenCalledWith('usr-1', {
           name: 'Test User',
           username: 'testuser',
-          subscriptionTier: 'PRO',
-          subscriptionExpiresAt: expect.any(String),
+          subscriptionTier: 'REGISTERED',
         });
+      });
+    });
+
+    it('filters users by storage and activity status using pills', async () => {
+      render(<AdminPage onBackToCanvas={vi.fn()} />);
+
+      const usersNavBtn = await screen.findByRole('button', {
+        name: /User Accounts/i,
+      });
+      fireEvent.click(usersNavBtn);
+
+      await screen.findByText('test@example.com');
+
+      const highUsagePill = screen.getByRole('button', { name: />80% Quota/i });
+      fireEvent.click(highUsagePill);
+
+      await waitFor(() => {
+        expect(api.admin.users).toHaveBeenCalledWith(
+          expect.objectContaining({
+            storageFilter: 'HIGH_USAGE',
+          }),
+        );
+      });
+
+      const activePill = screen.getByRole('button', { name: /^Active$/i });
+      fireEvent.click(activePill);
+
+      await waitFor(() => {
+        expect(api.admin.users).toHaveBeenCalledWith(
+          expect.objectContaining({
+            storageFilter: 'HIGH_USAGE',
+            activityFilter: 'ACTIVE',
+          }),
+        );
       });
     });
 
@@ -806,6 +943,8 @@ describe('Admin Portal Tests', () => {
           format: 'csv',
           search: undefined,
           tier: 'ALL',
+          storageFilter: 'ALL',
+          activityFilter: 'ALL',
         });
         expect(triggerBlobDownload).toHaveBeenCalled();
       });
@@ -820,6 +959,8 @@ describe('Admin Portal Tests', () => {
           format: 'json',
           search: undefined,
           tier: 'ALL',
+          storageFilter: 'ALL',
+          activityFilter: 'ALL',
         });
       });
     });
@@ -856,8 +997,7 @@ describe('Admin Portal Tests', () => {
         expect(api.admin.batchUsers).toHaveBeenCalledWith({
           userIds: ['usr-1'],
           action: 'set_tier',
-          tier: 'PRO',
-          durationDays: 30,
+          tier: 'REGISTERED',
         });
       });
     });
@@ -1038,37 +1178,41 @@ describe('Admin Portal Tests', () => {
     });
   });
 
-  describe('AdminSubscriptionsTab Operations', () => {
-    it('triggers audit export for subscription billing events in CSV and JSON formats', async () => {
+  describe('AdminOverviewTab Quota Telemetry', () => {
+    it('displays similarity search queue and storage quota telemetry cards', async () => {
       render(<AdminPage onBackToCanvas={vi.fn()} />);
 
-      const subNavBtn = await screen.findByRole('button', {
-        name: /Revenue & Billing/i,
-      });
-      fireEvent.click(subNavBtn);
+      expect(
+        await screen.findByText(/System Analytics & Overview/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Similarity Search Quota/i)).toBeInTheDocument();
+      expect(screen.getByText(/Queue: LOW/i)).toBeInTheDocument();
+      expect(screen.getByText(/225 Registered/i)).toBeInTheDocument();
+      expect(screen.getByText(/15 Anonymous/i)).toBeInTheDocument();
+    });
 
-      await screen.findByText(/Subscriptions & Revenue Management/i);
-      const exportCsvBtn = screen.getByRole('button', {
-        name: /Export CSV/i,
-      });
-      fireEvent.click(exportCsvBtn);
+    it('displays ad revenue intelligence and top knowledge graphs leaderboard', async () => {
+      render(<AdminPage onBackToCanvas={vi.fn()} />);
+
+      expect(
+        await screen.findByText(/Top Knowledge Graphs by Ad Revenue/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Distributed Systems Graph')).toBeInTheDocument();
+      expect(screen.getByText('$1.13')).toBeInTheDocument();
+      expect(
+        screen.getByText('Neural Networks Architecture'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('$0.67')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Occlusion Culling Savings/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText('20%')).toBeInTheDocument();
+
+      const sevenDayPill = screen.getByRole('button', { name: '7D' });
+      fireEvent.click(sevenDayPill);
 
       await waitFor(() => {
-        expect(api.admin.exportSubscriptionEvents).toHaveBeenCalledWith({
-          format: 'csv',
-        });
-        expect(triggerBlobDownload).toHaveBeenCalled();
-      });
-
-      const exportJsonBtn = screen.getByRole('button', {
-        name: /Export JSON/i,
-      });
-      fireEvent.click(exportJsonBtn);
-
-      await waitFor(() => {
-        expect(api.admin.exportSubscriptionEvents).toHaveBeenCalledWith({
-          format: 'json',
-        });
+        expect(api.ads.getAnalytics).toHaveBeenCalledWith('7d');
       });
     });
   });
@@ -1092,6 +1236,27 @@ describe('Admin Portal Tests', () => {
       fireEvent.change(retentionInput, { target: { value: '120' } });
       expect(retentionInput.value).toBe('120');
 
+      const ecpmInput = screen.getByLabelText(
+        /Base eCPM Calculation Rate/i,
+      ) as HTMLInputElement;
+      expect(ecpmInput.value).toBe('1.5');
+      fireEvent.change(ecpmInput, { target: { value: '2.5' } });
+      expect(ecpmInput.value).toBe('2.5');
+
+      const densityInput = screen.getByLabelText(
+        /Canvas Ad Node Density Ratio/i,
+      ) as HTMLInputElement;
+      expect(densityInput.value).toBe('35');
+      fireEvent.change(densityInput, { target: { value: '45' } });
+      expect(densityInput.value).toBe('45');
+
+      const maxAdsInput = screen.getByLabelText(
+        /Maximum Concurrent Canvas Ads/i,
+      ) as HTMLInputElement;
+      expect(maxAdsInput.value).toBe('5');
+      fireEvent.change(maxAdsInput, { target: { value: '7' } });
+      expect(maxAdsInput.value).toBe('7');
+
       const maintenanceSwitch = screen.getByLabelText(
         /Toggle Maintenance Mode/i,
       );
@@ -1107,6 +1272,11 @@ describe('Admin Portal Tests', () => {
           expect.objectContaining({
             retentionDays: 120,
             maintenanceMode: true,
+            adConfig: {
+              effectiveEcpm: 2.5,
+              canvasAdDensity: 45,
+              maxCanvasAds: 7,
+            },
           }),
         );
       });
@@ -1183,6 +1353,61 @@ describe('Admin Portal Tests', () => {
               allowedIps: ['127.0.0.1', '10.0.0.0/8', '192.168.1.0/24'],
               exemptUserIds: ['usr-exempt-1', 'usr-exempt-2'],
               exemptRoles: ['admin', 'support'],
+            },
+          }),
+        );
+      });
+    });
+
+    it('allows adding and removing custom search synonyms', async () => {
+      render(<AdminPage onBackToCanvas={vi.fn()} />);
+
+      const settingsNavBtn = await screen.findByRole('button', {
+        name: /System Configuration/i,
+      });
+      fireEvent.click(settingsNavBtn);
+
+      await screen.findByText(/Search Synonyms & Technical Acronym Expansion/i);
+
+      expect(screen.getByText('k8s')).toBeInTheDocument();
+      expect(
+        screen.getByText('kubernetes, container orchestration'),
+      ).toBeInTheDocument();
+
+      const keyInput = screen.getByLabelText(/Acronym \/ Keyword/i);
+      const termsInput = screen.getByLabelText(/Expansion Terms/i);
+      const addBtn = screen.getByRole('button', { name: /Add Mapping/i });
+
+      fireEvent.change(keyInput, { target: { value: 'bfs' } });
+      fireEvent.change(termsInput, {
+        target: { value: 'breadth first search, graph traversal' },
+      });
+      fireEvent.click(addBtn);
+
+      expect(screen.getByText('bfs')).toBeInTheDocument();
+      expect(
+        screen.getByText('breadth first search, graph traversal'),
+      ).toBeInTheDocument();
+
+      const removeK8sBtn = screen.getByRole('button', {
+        name: /Remove synonym for k8s/i,
+      });
+      fireEvent.click(removeK8sBtn);
+
+      expect(
+        screen.queryByText('kubernetes, container orchestration'),
+      ).not.toBeInTheDocument();
+
+      const saveBtn = screen.getByRole('button', {
+        name: /Save Configuration/i,
+      });
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(api.admin.updateSettings).toHaveBeenCalledWith(
+          expect.objectContaining({
+            synonymsConfig: {
+              bfs: ['breadth first search', 'graph traversal'],
             },
           }),
         );

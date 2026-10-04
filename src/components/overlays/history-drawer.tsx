@@ -1,12 +1,26 @@
-import { Bookmark, Check, History, Pencil, Search, X } from 'lucide-react';
+import {
+  Bookmark,
+  Check,
+  Compass,
+  History,
+  Pencil,
+  RotateCcw,
+  Search,
+  X,
+} from 'lucide-react';
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 
-import type { QueryHistory, SearchResponse } from '../../types/api';
+import type {
+  CrawlResponse,
+  QueryHistory,
+  SearchResponse,
+} from '../../types/api';
 
 const DEFAULT_WIDTH = 280;
 const DEFAULT_HEIGHT = 215;
@@ -21,12 +35,15 @@ const STORAGE_HEIGHT_KEY = 'vc_history_drawer_height';
 
 type ResizeDirection = 'top' | 'right' | 'corner' | null;
 
+export type HistoryFilterMode = 'all' | 'pinned' | 'search' | 'crawl';
+
 type HistoryDrawerProps = {
   entries: QueryHistory[];
   onRestore: (entry: QueryHistory) => void;
   onEdit: (entry: QueryHistory) => void;
   onTogglePin: (entry: QueryHistory) => void;
   onRename?: (entry: QueryHistory, title: string) => void | Promise<void>;
+  onRerun?: (entry: QueryHistory) => void | Promise<void>;
 };
 
 export function HistoryDrawer({
@@ -35,6 +52,7 @@ export function HistoryDrawer({
   onEdit,
   onTogglePin,
   onRename,
+  onRerun,
 }: HistoryDrawerProps) {
   // Dimensions state with localStorage persistence
   const [width, setWidth] = useState<number>(() => {
@@ -86,6 +104,10 @@ export function HistoryDrawer({
   // Custom name inline editing state
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+
+  // Quick filter chips and in-drawer search
+  const [filterMode, setFilterMode] = useState<HistoryFilterMode>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Persist dimensions
   useEffect(() => {
@@ -200,8 +222,30 @@ export function HistoryDrawer({
     setEditingTitle('');
   }
 
-  const pinnedEntries = entries.filter((e) => e.isPinned);
-  const unpinnedEntries = entries.filter((e) => !e.isPinned);
+  const filteredEntries = useMemo(() => {
+    let result = entries;
+    if (filterMode === 'pinned') {
+      result = result.filter((e) => e.isPinned);
+    } else if (filterMode === 'search') {
+      result = result.filter((e) => !isCrawlHistoryEntry(e));
+    } else if (filterMode === 'crawl') {
+      result = result.filter((e) => isCrawlHistoryEntry(e));
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (e) =>
+          e.queryText.toLowerCase().includes(q) ||
+          (Boolean(e.title) && e.title!.toLowerCase().includes(q)),
+      );
+    }
+
+    return result;
+  }, [entries, filterMode, searchQuery]);
+
+  const pinnedEntries = filteredEntries.filter((e) => e.isPinned);
+  const unpinnedEntries = filteredEntries.filter((e) => !e.isPinned);
 
   function renderEntry(entry: QueryHistory) {
     const isEditing = editingEntryId === entry.id;
@@ -257,10 +301,11 @@ export function HistoryDrawer({
       );
     }
 
+    const isCrawl = isCrawlHistoryEntry(entry);
     return (
       <article
         key={entry.id}
-        className={`history-entry ${entry.isPinned ? 'is-pinned' : ''}`}
+        className={`history-entry ${entry.isPinned ? 'is-pinned' : ''} ${isCrawl ? 'is-crawl' : ''}`}
       >
         <button
           type="button"
@@ -280,10 +325,40 @@ export function HistoryDrawer({
           ) : (
             <strong>{entry.queryText}</strong>
           )}
-          <small>{new Date(entry.createdAt).toLocaleString()}</small>
+          <div className="history-query-footer">
+            <span
+              className={`history-type-pill ${isCrawl ? 'crawl' : 'search'}`}
+            >
+              {isCrawl ? (
+                <>
+                  <Compass size={10} aria-hidden="true" />
+                  <span>Crawl</span>
+                </>
+              ) : (
+                <>
+                  <Search size={10} aria-hidden="true" />
+                  <span>Search</span>
+                </>
+              )}
+            </span>
+            <small>{new Date(entry.createdAt).toLocaleString()}</small>
+          </div>
         </button>
 
         <div className="history-actions">
+          {onRerun ? (
+            <button
+              type="button"
+              className="history-action-rerun"
+              title="Re-run query"
+              aria-label="Re-run query"
+              onClick={() => {
+                void onRerun(entry);
+              }}
+            >
+              <RotateCcw size={13} />
+            </button>
+          ) : null}
           <button
             type="button"
             title="Rename search"
@@ -374,9 +449,89 @@ export function HistoryDrawer({
         <span className="history-count-badge">{entries.length}</span>
       </div>
 
+      {entries.length > 0 ? (
+        <div className="history-controls-row">
+          <div
+            className="history-filter-chips"
+            role="tablist"
+            aria-label="Filter history types"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filterMode === 'all'}
+              className={`history-filter-chip ${filterMode === 'all' ? 'is-active' : ''}`}
+              onClick={() => setFilterMode('all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filterMode === 'pinned'}
+              className={`history-filter-chip ${filterMode === 'pinned' ? 'is-active' : ''}`}
+              onClick={() => setFilterMode('pinned')}
+            >
+              <Bookmark size={10} aria-hidden="true" />
+              Pinned
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filterMode === 'search'}
+              className={`history-filter-chip ${filterMode === 'search' ? 'is-active' : ''}`}
+              onClick={() => setFilterMode('search')}
+            >
+              <Search size={10} aria-hidden="true" />
+              Searches
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filterMode === 'crawl'}
+              className={`history-filter-chip ${filterMode === 'crawl' ? 'is-active' : ''}`}
+              onClick={() => setFilterMode('crawl')}
+            >
+              <Compass size={10} aria-hidden="true" />
+              Crawls
+            </button>
+          </div>
+          {entries.length > 2 ? (
+            <div className="history-search-bar">
+              <Search
+                size={11}
+                className="history-search-icon"
+                aria-hidden="true"
+              />
+              <input
+                type="text"
+                className="history-search-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter..."
+                aria-label="Filter history"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="history-search-clear"
+                  onClick={() => setSearchQuery('')}
+                  title="Clear filter"
+                  aria-label="Clear filter"
+                >
+                  <X size={10} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="history-list">
         {entries.length === 0 ? (
           <p className="empty-state">Your searches will collect here.</p>
+        ) : filteredEntries.length === 0 ? (
+          <p className="empty-state">No queries match this filter.</p>
         ) : (
           <>
             {pinnedEntries.length > 0 ? (
@@ -407,16 +562,45 @@ export function HistoryDrawer({
   );
 }
 
+export function isCrawlHistoryEntry(entry: QueryHistory): boolean {
+  if (!entry.results) return false;
+  if (
+    typeof entry.results === 'object' &&
+    'nodes' in entry.results &&
+    Array.isArray((entry.results as CrawlResponse).nodes)
+  ) {
+    return true;
+  }
+  if (
+    typeof entry.results === 'object' &&
+    'queryType' in entry.results &&
+    (entry.results as { queryType?: string }).queryType === 'crawl'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function historyToCrawlResults(
+  entry: QueryHistory,
+): CrawlResponse | undefined {
+  if (!entry.results || !isCrawlHistoryEntry(entry)) return undefined;
+  return entry.results as CrawlResponse;
+}
+
 export function historyToResults(
   entry: QueryHistory,
 ): SearchResponse | undefined {
-  if (!entry.results) return undefined;
+  if (!entry.results || isCrawlHistoryEntry(entry)) return undefined;
+  const rawResults = Array.isArray(entry.results)
+    ? entry.results
+    : (entry.results as SearchResponse).results;
+  if (!rawResults) return undefined;
   return {
     queryId: entry.id,
-    results: entry.results,
-    matchedNodeIds: entry.results.map((result) => result.nodeId),
+    queryType: 'simple',
+    results: rawResults,
+    matchedNodeIds: rawResults.map((result) => result.nodeId),
     remaining: 0,
-    extendedSearch: false,
-    extendedContextCount: 0,
   };
 }

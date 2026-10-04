@@ -33,20 +33,33 @@ const props = {
   onAttachCurrent: vi.fn(),
   onOpenAuth: vi.fn(),
   onOpenProfile: vi.fn(),
-  onOpenPricing: vi.fn(),
   theme: 'light' as const,
   onThemeChange: vi.fn(),
   limits: {
-    tier: 'FREE' as const,
-    graphs: { used: 3, limit: 3, exceeded: true },
-    privateGraphs: { used: 1, limit: 2, exceeded: false },
-    queries: { used: 20, limit: 20, exceeded: true },
-    uploads: { used: 2, limit: 10, exceeded: false },
-    selectedNodes: { used: 0, limit: 10, exceeded: false },
-    nodesPerGraph: { used: 14, limit: 10, exceeded: true },
-    sourcesPerNode: { used: 3, limit: 3, exceeded: true },
-    sourceSizeBytes: { used: 0, limit: 2 * 1024 * 1024, exceeded: false },
-    extendedContext: { used: 0, limit: 3, exceeded: false },
+    tier: 'REGISTERED' as const,
+    storage: {
+      usedBytes: 15 * 1024 * 1024,
+      limitBytes: 100 * 1024 * 1024,
+      limitMb: 100,
+      usedPercentage: 15,
+      exceeded: false,
+    },
+    queueOccupation: 'low' as const,
+    canCreateGraphs: true,
+    crawl: {
+      allowedDepths: ['shallow', 'default', 'deep', 'unlimited'],
+      maxStartingPoints: null,
+      allowComparative: true,
+    },
+    graphs: { used: 3, limit: null, exceeded: false },
+    privateGraphs: { used: 1, limit: null, exceeded: false },
+    queries: { used: 20, limit: null, exceeded: false },
+    uploads: { used: 2, limit: null, exceeded: false },
+    selectedNodes: { used: 0, limit: null, exceeded: false },
+    nodesPerGraph: { used: 14, limit: null, exceeded: false },
+    sourcesPerNode: { used: 3, limit: null, exceeded: false },
+    sourceSizeBytes: { used: 0, limit: 50 * 1024 * 1024, exceeded: false },
+    extendedContext: { used: 0, limit: null, exceeded: false },
   } satisfies LimitsSummary,
 };
 
@@ -109,28 +122,27 @@ describe('Header graph access controls', () => {
     expect(screen.getByText('⚠️ Deletion Scheduled')).toBeInTheDocument();
   });
 
-  it('opens the current quota context menu with separate Quotas and Plan limits sections', () => {
+  it('opens the current quota context menu with storage, queue occupation, and capabilities', () => {
     render(<Header {...props} graph={graph} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Limits' }));
 
     expect(screen.getByRole('menu', { name: 'Limits' })).toBeInTheDocument();
-    expect(screen.getByText('Quotas')).toBeInTheDocument();
-    expect(screen.getByText('Plan limits')).toBeInTheDocument();
+    expect(screen.getByText('Source Document Storage')).toBeInTheDocument();
+    expect(screen.getByText('Similarity Search Queue')).toBeInTheDocument();
+    expect(screen.getByText('Capabilities')).toBeInTheDocument();
 
-    // Quotas section
-    expect(screen.getByText('3 / 3')).toBeInTheDocument();
-    expect(screen.getByText('20 / 20')).toBeInTheDocument();
-    expect(screen.getByText('2 / 10')).toBeInTheDocument();
-    expect(screen.getAllByText('At limit').length).toBeGreaterThanOrEqual(2);
+    // Storage section
+    expect(screen.getByText('15 MB / 100 MB')).toBeInTheDocument();
 
-    // Plan limits section
-    expect(screen.getByText('Nodes per graph')).toBeInTheDocument();
-    expect(screen.getByText('Sources per node')).toBeInTheDocument();
-    expect(screen.getByText('Max file size')).toBeInTheDocument();
-    expect(screen.getByText('2 MB')).toBeInTheDocument();
-    expect(screen.getByText('Nodes per search')).toBeInTheDocument();
-    expect(screen.getByText('Extended search chunks')).toBeInTheDocument();
+    // Queue Occupation
+    expect(screen.getByText('low')).toBeInTheDocument();
+
+    // Capabilities section
+    expect(screen.getByText('Knowledge Graphs')).toBeInTheDocument();
+    expect(screen.getAllByText('Unlimited').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Graph Traversal & Crawl')).toBeInTheDocument();
+    expect(screen.getByText('Full Depth & Multi-Seed')).toBeInTheDocument();
   });
 
   it('displays clean anonymous quota and plan limit values without per-node usage ratios', () => {
@@ -138,6 +150,20 @@ describe('Header graph access controls', () => {
       ...props,
       limits: {
         tier: 'ANONYMOUS' as const,
+        storage: {
+          usedBytes: 0,
+          limitBytes: 0,
+          limitMb: 0,
+          usedPercentage: 0,
+          exceeded: true,
+        },
+        queueOccupation: 'low' as const,
+        canCreateGraphs: false,
+        crawl: {
+          allowedDepths: ['shallow'],
+          maxStartingPoints: 1,
+          allowComparative: false,
+        },
         graphs: { used: 0, limit: 0, exceeded: true },
         privateGraphs: { used: 0, limit: 0, exceeded: true },
         queries: { used: 1, limit: 3, exceeded: false },
@@ -153,11 +179,106 @@ describe('Header graph access controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Limits' }));
 
-    expect(screen.getByText('1 / 3')).toBeInTheDocument();
-    expect(screen.getByText('Available')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument(); // selected nodes limit
-    expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(5);
-    expect(screen.queryByText('0 / 0')).not.toBeInTheDocument();
+    expect(screen.getByText('Source Document Storage')).toBeInTheDocument();
+    expect(screen.getByText('Capabilities')).toBeInTheDocument();
+    expect(screen.getByText('Query / Crawl Only')).toBeInTheDocument();
+    expect(screen.getByText('Shallow (1 Seed)')).toBeInTheDocument();
+    expect(screen.getByText('Requires Account')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument(); // guest selected nodes limit
+    expect(screen.queryByText('Daily queries')).not.toBeInTheDocument();
+    expect(screen.queryByText('Nodes per graph')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 / 3')).not.toBeInTheDocument();
+  });
+
+  it('displays Crawl and PDF capabilities in limits menu for registered users', () => {
+    const registeredProps = {
+      ...props,
+      identity: {
+        userId: 'u1',
+        email: 'u1@example.com',
+        username: 'u1',
+        isGuest: false,
+        tier: 'REGISTERED' as const,
+      },
+      limits: {
+        tier: 'REGISTERED' as const,
+        storage: {
+          usedBytes: 15 * 1024 * 1024,
+          limitBytes: 100 * 1024 * 1024,
+          limitMb: 100,
+          usedPercentage: 15,
+          exceeded: false,
+        },
+        queueOccupation: 'low' as const,
+        canCreateGraphs: true,
+        crawl: {
+          allowedDepths: ['shallow', 'default', 'deep', 'unlimited'],
+          maxStartingPoints: null,
+          allowComparative: true,
+        },
+      } satisfies LimitsSummary,
+    };
+
+    render(<Header {...registeredProps} graph={graph} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Limits' }));
+
+    expect(screen.getByText('Capabilities')).toBeInTheDocument();
+    expect(screen.getByText('Full Depth & Multi-Seed')).toBeInTheDocument();
+    expect(screen.getByText('Docling AI (Active)')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Upgrade/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('triggers onOpenAuth when guest clicks Create Free Account in limits menu', () => {
+    const onOpenAuth = vi.fn();
+    const anonProps = {
+      ...props,
+      onOpenAuth,
+      identity: {
+        userId: 'guest-1',
+        email: null,
+        username: null,
+        isGuest: true,
+        tier: 'ANONYMOUS' as const,
+      },
+      limits: {
+        tier: 'ANONYMOUS' as const,
+        storage: {
+          usedBytes: 0,
+          limitBytes: 0,
+          limitMb: 0,
+          usedPercentage: 0,
+          exceeded: true,
+        },
+        queueOccupation: 'low' as const,
+        canCreateGraphs: false,
+        crawl: {
+          allowedDepths: ['shallow'],
+          maxStartingPoints: 1,
+          allowComparative: false,
+        },
+        graphs: { used: 0, limit: 0, exceeded: true },
+        privateGraphs: { used: 0, limit: 0, exceeded: true },
+        queries: { used: 1, limit: 3, exceeded: false },
+        uploads: { used: 0, limit: 0, exceeded: true },
+        selectedNodes: { used: 0, limit: 2, exceeded: false },
+        nodesPerGraph: { used: 0, limit: 0, exceeded: true },
+        sourcesPerNode: { used: 0, limit: 0, exceeded: true },
+        sourceSizeBytes: { used: 0, limit: 0, exceeded: false },
+        extendedContext: { used: 0, limit: 0, exceeded: false },
+      } satisfies LimitsSummary,
+    };
+
+    render(<Header {...anonProps} graph={graph} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Limits' }));
+
+    const signUpBtn = screen.getByRole('button', {
+      name: 'Create Free Account',
+    });
+    expect(signUpBtn).toBeInTheDocument();
+    fireEvent.click(signUpBtn);
+    expect(onOpenAuth).toHaveBeenCalled();
   });
 
   it('renders notification bell with badge and displays notifications list on click', () => {
@@ -245,7 +366,7 @@ describe('Header graph access controls', () => {
       userId: 'user-1',
       username: 'johndoe',
       email: 'john@example.com',
-      tier: 'FREE' as const,
+      tier: 'REGISTERED' as const,
       isGuest: false,
     };
 
@@ -258,6 +379,13 @@ describe('Header graph access controls', () => {
       />,
     );
 
+    // Open unified Account & Preferences hub
+    const accountTrigger = screen.getByRole('button', {
+      name: 'Account & Preferences',
+    });
+    expect(accountTrigger).toBeInTheDocument();
+    fireEvent.click(accountTrigger);
+
     const retentionBtn = screen.getByTitle('Retention & Cold Storage');
     expect(retentionBtn).toBeInTheDocument();
 
@@ -265,12 +393,84 @@ describe('Header graph access controls', () => {
     expect(onOpenRetentionDashboard).toHaveBeenCalledTimes(1);
   });
 
+  it('renders unified Account & Preferences hub with profile, tier, and preferences', () => {
+    const onOpenProfile = vi.fn();
+    const onThemeChange = vi.fn();
+    const authenticatedIdentity = {
+      userId: 'user-1',
+      username: 'johndoe',
+      email: 'john@example.com',
+      tier: 'REGISTERED' as const,
+      isGuest: false,
+    };
+
+    render(
+      <Header
+        {...props}
+        graph={graph}
+        identity={authenticatedIdentity}
+        onOpenProfile={onOpenProfile}
+        onThemeChange={onThemeChange}
+      />,
+    );
+
+    const accountTrigger = screen.getByRole('button', {
+      name: 'Account & Preferences',
+    });
+    fireEvent.click(accountTrigger);
+
+    expect(
+      screen.getByRole('menu', { name: 'Account & Preferences' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('johndoe')).toBeInTheDocument();
+    expect(screen.getByText('john@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Registered Plan')).toBeInTheDocument();
+
+    // Click Profile Settings
+    const profileBtn = screen.getByRole('menuitem', {
+      name: 'Profile Settings',
+    });
+    fireEvent.click(profileBtn);
+    expect(onOpenProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders preferences trigger for guest users and switches theme', () => {
+    const onThemeChange = vi.fn();
+    const guestIdentity = {
+      userId: 'guest-1',
+      username: null,
+      email: null,
+      isGuest: true,
+      tier: 'ANONYMOUS' as const,
+    };
+
+    render(
+      <Header
+        {...props}
+        graph={graph}
+        identity={guestIdentity}
+        onThemeChange={onThemeChange}
+      />,
+    );
+
+    const prefsBtn = screen.getByRole('button', { name: 'Preferences' });
+    expect(prefsBtn).toBeInTheDocument();
+    fireEvent.click(prefsBtn);
+
+    expect(
+      screen.getByRole('menu', { name: 'Account & Preferences' }),
+    ).toBeInTheDocument();
+    const darkThemeBtn = screen.getByRole('radio', { name: 'Dark' });
+    fireEvent.click(darkThemeBtn);
+    expect(onThemeChange).toHaveBeenCalledWith('dark');
+  });
+
   it('does not render an Admin button for any identity tier or role', () => {
     const adminIdentity: Identity = {
       userId: 'admin-1',
       username: 'admin',
       email: 'admin@example.com',
-      tier: 'PRO',
+      tier: 'REGISTERED',
       role: 'admin',
       isGuest: false,
     };
@@ -283,5 +483,42 @@ describe('Header graph access controls', () => {
     expect(
       screen.queryByTitle('Open Administration Dashboard'),
     ).not.toBeInTheDocument();
+  });
+
+  it('renders Privacy & Cookies button in user hub and calls onOpenPrivacy on click', () => {
+    const onOpenPrivacy = vi.fn();
+    render(
+      <Header
+        {...props}
+        graph={graph}
+        identity={{
+          userId: 'user-1',
+          username: 'johndoe',
+          email: 'john@example.com',
+          isGuest: false,
+          tier: 'REGISTERED',
+        }}
+        onOpenPrivacy={onOpenPrivacy}
+      />,
+    );
+
+    const accountTrigger = screen.getByRole('button', {
+      name: 'Account & Preferences',
+    });
+    fireEvent.click(accountTrigger);
+
+    const privacyBtn = screen.getByTestId('user-hub-privacy-btn');
+    expect(privacyBtn).toBeInTheDocument();
+    fireEvent.click(privacyBtn);
+    expect(onOpenPrivacy).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders pulsing brand icon when isSearching is true', () => {
+    const { container } = render(
+      <Header {...props} graph={graph} isSearching={true} />,
+    );
+
+    const brandIcon = container.querySelector('.brand-mark svg');
+    expect(brandIcon).toHaveClass('is-pulsing');
   });
 });

@@ -5,6 +5,7 @@ import {
   Edit2,
   Eye,
   Filter,
+  HardDrive,
   Layers,
   Network,
   RefreshCw,
@@ -30,6 +31,12 @@ export function AdminUsersTab() {
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('ALL');
+  const [storageFilter, setStorageFilter] = useState<
+    'ALL' | 'HIGH_USAGE' | 'HAS_STORAGE'
+  >('ALL');
+  const [activityFilter, setActivityFilter] = useState<
+    'ALL' | 'ACTIVE' | 'INACTIVE'
+  >('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,8 +46,7 @@ export function AdminUsersTab() {
   );
   const [exporting, setExporting] = useState<string | null>(null);
   const [batchTierModalOpen, setBatchTierModalOpen] = useState(false);
-  const [batchTier, setBatchTier] = useState<SubscriptionTier>('PRO');
-  const [batchDays, setBatchDays] = useState(30);
+  const [batchTier, setBatchTier] = useState<SubscriptionTier>('REGISTERED');
   const [batchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
   const [batchProcessing, setBatchProcessing] = useState(false);
 
@@ -49,17 +55,30 @@ export function AdminUsersTab() {
     null,
   );
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-  const [editTier, setEditTier] = useState<SubscriptionTier>('FREE');
-  const [editExpiresAt, setEditExpiresAt] = useState('');
+  const [editTier, setEditTier] = useState<SubscriptionTier>('REGISTERED');
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
+  const [editStorageLimitMb, setEditStorageLimitMb] = useState<number | ''>('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Storage limit adjustment modal
+  const [storageAdjustUser, setStorageAdjustUser] = useState<AdminUser | null>(
+    null,
+  );
+  const [storageLimitMb, setStorageLimitMb] = useState<number | ''>(100);
+  const [adjustingStorage, setAdjustingStorage] = useState(false);
 
   // Deletion modal
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const loadUsers = async (p = page, s = search, t = tierFilter) => {
+  const loadUsers = async (
+    p = page,
+    s = search,
+    t = tierFilter,
+    sf = storageFilter,
+    af = activityFilter,
+  ) => {
     setLoading(true);
     setError(null);
     try {
@@ -68,6 +87,8 @@ export function AdminUsersTab() {
         limit,
         search: s.trim() || undefined,
         tier: t,
+        storageFilter: sf,
+        activityFilter: af,
       });
       setUsers(res.users);
       setTotal(res.pagination.total);
@@ -81,12 +102,12 @@ export function AdminUsersTab() {
   };
 
   useEffect(() => {
-    void loadUsers(1, search, tierFilter);
-  }, [tierFilter]);
+    void loadUsers(1, search, tierFilter, storageFilter, activityFilter);
+  }, [tierFilter, storageFilter, activityFilter]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    void loadUsers(1, search, tierFilter);
+    void loadUsers(1, search, tierFilter, storageFilter, activityFilter);
   };
 
   const handleViewDetails = async (id: string) => {
@@ -101,13 +122,9 @@ export function AdminUsersTab() {
   const handleOpenEdit = (user: AdminUser) => {
     setEditingUser(user);
     setEditTier(user.subscriptionTier);
-    setEditExpiresAt(
-      user.subscriptionExpiresAt
-        ? new Date(user.subscriptionExpiresAt).toISOString().split('T')[0]!
-        : '',
-    );
     setEditName(user.name);
     setEditUsername(user.username ?? '');
+    setEditStorageLimitMb(user.storageLimitMb ?? '');
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -119,16 +136,40 @@ export function AdminUsersTab() {
         name: editName.trim() || undefined,
         username: editUsername.trim() || undefined,
         subscriptionTier: editTier,
-        subscriptionExpiresAt: editExpiresAt
-          ? new Date(editExpiresAt).toISOString()
-          : null,
       });
+      if (
+        (editStorageLimitMb === '' ? null : Number(editStorageLimitMb)) !==
+        (editingUser.storageLimitMb ?? null)
+      ) {
+        await api.admin.updateUserStorageLimit(
+          editingUser.id,
+          editStorageLimitMb === '' ? null : Number(editStorageLimitMb),
+        );
+      }
       setEditingUser(null);
       void loadUsers(page, search, tierFilter);
     } catch (err: any) {
       alert(err?.message ?? 'Failed to update user.');
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const handleAdjustStorageSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!storageAdjustUser) return;
+    setAdjustingStorage(true);
+    try {
+      await api.admin.updateUserStorageLimit(
+        storageAdjustUser.id,
+        storageLimitMb === '' ? null : Number(storageLimitMb),
+      );
+      setStorageAdjustUser(null);
+      void loadUsers(page, search, tierFilter);
+    } catch (err: any) {
+      alert(err?.message ?? 'Failed to update user storage limit.');
+    } finally {
+      setAdjustingStorage(false);
     }
   };
 
@@ -180,6 +221,8 @@ export function AdminUsersTab() {
         format,
         search: search.trim() || undefined,
         tier: tierFilter,
+        storageFilter,
+        activityFilter,
       });
       const date = new Date().toISOString().split('T')[0];
       triggerBlobDownload(blob, `users-audit-${date}.${format}`);
@@ -201,7 +244,6 @@ export function AdminUsersTab() {
         userIds: Array.from(selectedUserIds),
         action: 'set_tier',
         tier: batchTier,
-        durationDays: batchTier === 'PRO' ? batchDays : undefined,
       });
       setBatchTierModalOpen(false);
       setSelectedUserIds(new Set());
@@ -245,8 +287,8 @@ export function AdminUsersTab() {
         <div>
           <h2>User Accounts & Subscriptions</h2>
           <p className="admin-tab-subtitle">
-            Inspect registered accounts, grant or revoke Pro privileges, and
-            audit usage.
+            Inspect user accounts, configure subscription tiers, manage storage
+            limits, and audit usage.
           </p>
         </div>
         <div className="admin-tab-header-actions">
@@ -281,7 +323,9 @@ export function AdminUsersTab() {
           <button
             type="button"
             className="admin-btn secondary refresh-btn"
-            onClick={() => loadUsers(page, search, tierFilter)}
+            onClick={() =>
+              loadUsers(page, search, tierFilter, storageFilter, activityFilter)
+            }
           >
             <RefreshCw size={14} className={loading ? 'spinning' : ''} />
             <span>Refresh</span>
@@ -305,7 +349,13 @@ export function AdminUsersTab() {
               className="clear-search-btn"
               onClick={() => {
                 setSearch('');
-                void loadUsers(1, '', tierFilter);
+                void loadUsers(
+                  1,
+                  '',
+                  tierFilter,
+                  storageFilter,
+                  activityFilter,
+                );
               }}
             >
               <X size={14} />
@@ -315,7 +365,7 @@ export function AdminUsersTab() {
 
         <div className="admin-tier-pills">
           <Filter size={14} className="filter-icon" />
-          {['ALL', 'FREE', 'PRO', 'ANONYMOUS'].map((tier) => (
+          {['ALL', 'REGISTERED', 'ANONYMOUS'].map((tier) => (
             <button
               key={tier}
               type="button"
@@ -323,6 +373,46 @@ export function AdminUsersTab() {
               onClick={() => setTierFilter(tier)}
             >
               {tier}
+            </button>
+          ))}
+        </div>
+
+        <div className="admin-tier-pills">
+          <HardDrive size={14} className="filter-icon" />
+          {[
+            { id: 'ALL', label: 'All Storage' },
+            { id: 'HIGH_USAGE', label: '>80% Quota' },
+            { id: 'HAS_STORAGE', label: 'With Files' },
+          ].map((st) => (
+            <button
+              key={st.id}
+              type="button"
+              className={`filter-pill ${storageFilter === st.id ? 'active' : ''}`}
+              onClick={() =>
+                setStorageFilter(st.id as 'ALL' | 'HIGH_USAGE' | 'HAS_STORAGE')
+              }
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="admin-tier-pills">
+          <Network size={14} className="filter-icon" />
+          {[
+            { id: 'ALL', label: 'All Activity' },
+            { id: 'ACTIVE', label: 'Active' },
+            { id: 'INACTIVE', label: 'Inactive' },
+          ].map((act) => (
+            <button
+              key={act.id}
+              type="button"
+              className={`filter-pill ${activityFilter === act.id ? 'active' : ''}`}
+              onClick={() =>
+                setActivityFilter(act.id as 'ALL' | 'ACTIVE' | 'INACTIVE')
+              }
+            >
+              {act.label}
             </button>
           ))}
         </div>
@@ -334,7 +424,9 @@ export function AdminUsersTab() {
           <button
             type="button"
             className="admin-btn primary"
-            onClick={() => loadUsers(page, search, tierFilter)}
+            onClick={() =>
+              loadUsers(page, search, tierFilter, storageFilter, activityFilter)
+            }
           >
             Retry
           </button>
@@ -398,7 +490,8 @@ export function AdminUsersTab() {
                 <th>User / Account</th>
                 <th>Email</th>
                 <th>Tier</th>
-                <th>Expires</th>
+                <th>Storage Limit</th>
+                <th>Storage Used</th>
                 <th>Graphs</th>
                 <th>Sources</th>
                 <th>Joined</th>
@@ -408,14 +501,14 @@ export function AdminUsersTab() {
             <tbody>
               {loading && users.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-8">
+                  <td colSpan={10} className="text-center py-8">
                     <RefreshCw className="spinning inline mr-2" size={16} />
                     Loading accounts...
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="empty-table-cell">
+                  <td colSpan={10} className="empty-table-cell">
                     No users matching criteria.
                   </td>
                 </tr>
@@ -459,15 +552,16 @@ export function AdminUsersTab() {
                       </span>
                     </td>
                     <td>
-                      {user.subscriptionExpiresAt ? (
-                        <span className="text-xs">
-                          {new Date(
-                            user.subscriptionExpiresAt,
-                          ).toLocaleDateString()}
-                        </span>
-                      ) : (
-                        <span className="text-muted text-xs">—</span>
-                      )}
+                      <span className="badge-pill sm mint">
+                        {user.storageLimitMb != null
+                          ? `${user.storageLimitMb} MB`
+                          : 'Default (100 MB)'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge-pill sm">
+                        {formatBytes(user.usedStorageBytes ?? 0)}
+                      </span>
                     </td>
                     <td>
                       <span className="count-pill">{user.graphsCount}</span>
@@ -482,6 +576,17 @@ export function AdminUsersTab() {
                     </td>
                     <td className="text-right">
                       <div className="action-buttons-group">
+                        <button
+                          type="button"
+                          className="action-btn"
+                          title="Adjust storage limit (MB)"
+                          onClick={() => {
+                            setStorageAdjustUser(user);
+                            setStorageLimitMb(user.storageLimitMb ?? '');
+                          }}
+                        >
+                          <HardDrive size={14} />
+                        </button>
                         <button
                           type="button"
                           className="action-btn"
@@ -594,6 +699,14 @@ export function AdminUsersTab() {
                     {formatBytes(selectedUser.storage.totalBytes)})
                   </span>
                 </div>
+                <div className="profile-row">
+                  <span className="profile-label">Storage Limit:</span>
+                  <span className="profile-value font-semibold">
+                    {selectedUser.user.storageLimitMb != null
+                      ? `${selectedUser.user.storageLimitMb} MB`
+                      : 'System Default (100 MB)'}
+                  </span>
+                </div>
               </div>
 
               {/* User Graphs */}
@@ -633,8 +746,10 @@ export function AdminUsersTab() {
                     {selectedUser.recentQueries.map((q) => (
                       <li key={q.id} className="modal-item-row">
                         <span className="query-text">"{q.queryText}"</span>
-                        <span className="text-xs text-muted">
-                          {new Date(q.createdAt).toLocaleString()}
+                        <span className="modal-row-meta">
+                          <span className="text-xs text-muted">
+                            {new Date(q.createdAt).toLocaleString()}
+                          </span>
                         </span>
                       </li>
                     ))}
@@ -711,27 +826,33 @@ export function AdminUsersTab() {
                       setEditTier(e.target.value as SubscriptionTier)
                     }
                   >
-                    <option value="FREE">
-                      FREE User (5 graphs, 20 queries/day)
+                    <option value="REGISTERED">
+                      REGISTERED User (Unlimited graphs, 100MB initial storage)
                     </option>
-                    <option value="PRO">
-                      PRO Subscriber (Unlimited graphs, 1000 queries/mo)
+                    <option value="ANONYMOUS">
+                      ANONYMOUS Guest (Query & Crawl only)
                     </option>
-                    <option value="ANONYMOUS">ANONYMOUS Guest</option>
                   </select>
                 </div>
                 <div className="admin-form-group">
-                  <label htmlFor="edit-user-expiry">
-                    Subscription Expiration Date
+                  <label htmlFor="edit-user-storage">
+                    Storage Quota Limit (MB)
                   </label>
                   <input
-                    id="edit-user-expiry"
-                    type="date"
-                    value={editExpiresAt}
-                    onChange={(e) => setEditExpiresAt(e.target.value)}
+                    id="edit-user-storage"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    placeholder="Leave empty for system default (100 MB)"
+                    value={editStorageLimitMb}
+                    onChange={(e) =>
+                      setEditStorageLimitMb(
+                        e.target.value === '' ? '' : Number(e.target.value),
+                      )
+                    }
                   />
                   <small className="form-hint">
-                    Leave blank for lifetime/unexpiring access.
+                    Overrides global default storage limit for this account.
                   </small>
                 </div>
               </div>
@@ -850,29 +971,10 @@ export function AdminUsersTab() {
                       setBatchTier(e.target.value as SubscriptionTier)
                     }
                   >
-                    <option value="PRO">PRO</option>
-                    <option value="FREE">FREE</option>
+                    <option value="REGISTERED">REGISTERED</option>
                     <option value="ANONYMOUS">ANONYMOUS</option>
                   </select>
                 </div>
-                {batchTier === 'PRO' ? (
-                  <div className="admin-form-group">
-                    <label htmlFor="batch-duration-days">Duration (Days)</label>
-                    <input
-                      id="batch-duration-days"
-                      type="number"
-                      min={1}
-                      max={3650}
-                      value={batchDays}
-                      onChange={(e) =>
-                        setBatchDays(Number.parseInt(e.target.value, 10) || 30)
-                      }
-                    />
-                    <small className="form-hint">
-                      Subscription will expire in {batchDays} days.
-                    </small>
-                  </div>
-                ) : null}
               </div>
               <div className="admin-modal-footer">
                 <button
@@ -951,6 +1053,95 @@ export function AdminUsersTab() {
                   : `Permanently Delete ${selectedUserIds.size} Users`}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Adjust User Storage Limit Modal */}
+      {storageAdjustUser ? (
+        <div
+          className="admin-modal-overlay"
+          onClick={() => setStorageAdjustUser(null)}
+        >
+          <div
+            className="admin-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <form onSubmit={handleAdjustStorageSubmit}>
+              <div className="admin-modal-header">
+                <div className="header-title-group">
+                  <HardDrive size={18} />
+                  <h3>
+                    Adjust Storage Limit:{' '}
+                    {storageAdjustUser.name || storageAdjustUser.email}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="close-modal-btn"
+                  onClick={() => setStorageAdjustUser(null)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="admin-modal-body">
+                <div className="admin-callout info mb-4">
+                  Current Storage Footprint:{' '}
+                  <strong>
+                    {formatBytes(storageAdjustUser.usedStorageBytes ?? 0)}
+                  </strong>
+                  . Current Limit:{' '}
+                  <strong>
+                    {storageAdjustUser.storageLimitMb != null
+                      ? `${storageAdjustUser.storageLimitMb} MB`
+                      : 'System Default (100 MB)'}
+                  </strong>
+                  . Leave blank or empty to revert to the system default quota.
+                </div>
+                <div className="admin-form-group">
+                  <label htmlFor="adjust-storage-limit">
+                    Storage Limit (MB)
+                  </label>
+                  <input
+                    id="adjust-storage-limit"
+                    type="number"
+                    min={1}
+                    max={102400}
+                    step={1}
+                    value={storageLimitMb}
+                    onChange={(e) =>
+                      setStorageLimitMb(
+                        e.target.value === ''
+                          ? ''
+                          : Math.max(1, Number(e.target.value)),
+                      )
+                    }
+                    placeholder="Leave empty for system default (100 MB)"
+                  />
+                  <small className="form-hint">
+                    {storageLimitMb === ''
+                      ? 'Reverting to system default storage limit (100 MB).'
+                      : `Custom limit: ${storageLimitMb} MB (${formatBytes(Number(storageLimitMb) * 1024 * 1024)})`}
+                  </small>
+                </div>
+              </div>
+              <div className="admin-modal-footer">
+                <button
+                  type="button"
+                  className="admin-btn secondary"
+                  onClick={() => setStorageAdjustUser(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="admin-btn primary"
+                  disabled={adjustingStorage}
+                >
+                  {adjustingStorage ? 'Saving...' : 'Save Storage Limit'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

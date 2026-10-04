@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent } from 'react';
 import { io } from 'socket.io-client';
 
-import type { NotificationItem } from '../types/api';
+import type { CrawlProgressPayload, NotificationItem } from '../types/api';
 
 export type SocketProgressUpdate = {
   sourceId: string;
@@ -15,12 +15,14 @@ type UseSocketSyncProps = {
   graphId?: string;
   onProgressUpdate?: (update: SocketProgressUpdate) => void;
   onNewNotification?: (notification: NotificationItem) => void;
+  onCrawlProgress?: (progress: CrawlProgressPayload) => void;
 };
 
 export function useSocketSync({
   graphId,
   onProgressUpdate,
   onNewNotification,
+  onCrawlProgress,
 }: UseSocketSyncProps) {
   const handleProgress = useEffectEvent((update: SocketProgressUpdate) => {
     onProgressUpdate?.(update);
@@ -31,6 +33,10 @@ export function useSocketSync({
       onNewNotification?.(notification);
     },
   );
+
+  const handleCrawl = useEffectEvent((progress: CrawlProgressPayload) => {
+    onCrawlProgress?.(progress);
+  });
 
   useEffect(() => {
     const socket = io(import.meta.env.VITE_WS_URL ?? 'ws://localhost:3000/ws', {
@@ -50,6 +56,7 @@ export function useSocketSync({
 
     socket.on('progress:update', handleProgress);
     socket.on('notification:new', handleNotification);
+    socket.on('crawl:progress', handleCrawl);
 
     return () => {
       if (graphId && socket.connected) {

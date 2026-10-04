@@ -2,6 +2,7 @@ import {
   BookOpen,
   ExternalLink,
   FileText,
+  Image as ImageIcon,
   Info,
   ListOrdered,
   ListTree,
@@ -13,6 +14,8 @@ import {
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { HighlightedSnippet } from '../../lib/search-highlight';
+import { useGraphStore } from '../../store/graph-store';
 import type { SearchChunk, SearchResponse } from '../../types/api';
 
 const ResultsGuideDialog = lazy(() =>
@@ -38,9 +41,9 @@ type SourceMatchGroup = {
 
 export type ContextFilterMode = 'all' | 'same-source' | 'adjacent';
 
-const DEFAULT_RESULTS_WIDTH = 380;
+const DEFAULT_RESULTS_WIDTH = 420;
 const EXPANDED_RESULTS_WIDTH = 600;
-const MIN_RESULTS_WIDTH = 320;
+const MIN_RESULTS_WIDTH = 340;
 
 export function formatInlineSnippet(text: string): string {
   if (!text) return '';
@@ -88,8 +91,22 @@ export function ResultsSidebar({
   onClose,
 }: ResultsSidebarProps) {
   const { t } = useTranslation();
+  const setFocusedNodeId = useGraphStore((state) => state.setFocusedNodeId);
+  const openLightbox = useGraphStore((state) => state.openLightbox);
   const [contextFilter, setContextFilter] = useState<ContextFilterMode>('all');
   const [guideOpen, setGuideOpen] = useState(false);
+  const [inspectingChunk, setInspectingChunk] = useState<SearchChunk | null>(
+    null,
+  );
+
+  useEffect(() => {
+    setInspectingChunk(null);
+  }, [results?.queryId]);
+
+  const handleMatchClick = (chunk: SearchChunk) => {
+    setInspectingChunk(chunk);
+    onOpenMatch(chunk);
+  };
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_RESULTS_WIDTH;
     const saved = localStorage.getItem('vc_results_sidebar_width');
@@ -300,7 +317,7 @@ export function ResultsSidebar({
               <button
                 type="button"
                 className="lead-source-chip"
-                onClick={() => onOpenMatch(results.leadAnswer!.chunk)}
+                onClick={() => handleMatchClick(results.leadAnswer!.chunk)}
                 title={`View citation in ${results.leadAnswer.chunk.sourceName}`}
               >
                 <FileText size={12} aria-hidden="true" />
@@ -315,6 +332,12 @@ export function ResultsSidebar({
                 {results.leadAnswer.chunk.elementType === 'table' ? (
                   <span className="lead-page-tag is-table">Table</span>
                 ) : null}
+                {results.leadAnswer.chunk.imageAssetUrl ? (
+                  <span className="lead-page-tag is-image">
+                    <ImageIcon size={10} aria-hidden="true" />
+                    Figure
+                  </span>
+                ) : null}
                 <ExternalLink
                   size={11}
                   className="lead-link-icon"
@@ -322,14 +345,66 @@ export function ResultsSidebar({
                 />
               </button>
 
+              {results.leadAnswer.chunk.imageAssetUrl ? (
+                <div
+                  className="lead-answer-image-preview is-clickable"
+                  style={
+                    results.leadAnswer.chunk.lqip
+                      ? {
+                          backgroundImage: `url("${results.leadAnswer.chunk.lqip}")`,
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                        }
+                      : undefined
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openLightbox({
+                      url: results.leadAnswer!.chunk.imageAssetUrl!,
+                      title: results.leadAnswer!.chunk.content.slice(0, 80),
+                      pageNum: results.leadAnswer!.chunk.pageNum,
+                      sourceName: results.leadAnswer!.chunk.sourceName,
+                      coordinates: results.leadAnswer!.chunk.coordinates,
+                    });
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openLightbox({
+                        url: results.leadAnswer!.chunk.imageAssetUrl!,
+                        title: results.leadAnswer!.chunk.content.slice(0, 80),
+                        pageNum: results.leadAnswer!.chunk.pageNum,
+                        sourceName: results.leadAnswer!.chunk.sourceName,
+                        coordinates: results.leadAnswer!.chunk.coordinates,
+                      });
+                    }
+                  }}
+                  title="Click to view full-resolution figure in lightbox"
+                >
+                  <img
+                    src={results.leadAnswer.chunk.imageAssetUrl}
+                    alt={results.leadAnswer.chunk.content.slice(0, 60)}
+                    className="lead-answer-thumbnail"
+                    loading="lazy"
+                  />
+                </div>
+              ) : null}
+
               <button
                 type="button"
                 className="lead-answer-body"
-                onClick={() => onOpenMatch(results.leadAnswer!.chunk)}
+                onClick={() => handleMatchClick(results.leadAnswer!.chunk)}
                 title="Click to focus match in document"
               >
                 <p className="lead-answer-text">
-                  {formatInlineSnippet(results.leadAnswer.chunk.content)}
+                  <HighlightedSnippet
+                    text={formatInlineSnippet(results.leadAnswer.chunk.content)}
+                    query={results.query}
+                    expandedKeywords={results.expandedKeywords}
+                  />
                 </p>
               </button>
 
@@ -382,6 +457,96 @@ export function ResultsSidebar({
                   ) : null}
                 </div>
               ) : null}
+            </section>
+          ) : null}
+
+          {/* Unified Citation Inspector Card */}
+          {inspectingChunk ? (
+            <section
+              className="results-citation-inspector"
+              role="region"
+              aria-label="Citation Inspector"
+            >
+              <div className="citation-inspector-header">
+                <div className="citation-inspector-title-group">
+                  <Sparkles
+                    size={13}
+                    className="citation-inspector-icon"
+                    aria-hidden="true"
+                  />
+                  <span className="citation-inspector-heading">
+                    Citation Inspector
+                  </span>
+                </div>
+                <div className="citation-inspector-badges">
+                  {inspectingChunk.pageNum ? (
+                    <span className="result-kind-badge is-pdf-page">
+                      Page {inspectingChunk.pageNum}
+                    </span>
+                  ) : null}
+                  {inspectingChunk.rerankScore ? (
+                    <span className="result-kind-badge is-salience">
+                      {Math.round(
+                        inspectingChunk.rerankScore <= 1
+                          ? inspectingChunk.rerankScore * 100
+                          : inspectingChunk.rerankScore,
+                      )}
+                      % Match
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="citation-inspector-close-btn"
+                    title="Close citation inspector"
+                    aria-label="Close citation inspector"
+                    onClick={() => setInspectingChunk(null)}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="citation-inspector-body">
+                <div className="citation-source-info">
+                  <FileText size={13} aria-hidden="true" />
+                  <strong className="citation-source-name">
+                    {inspectingChunk.sourceName}
+                  </strong>
+                </div>
+                <blockquote className="citation-text-block">
+                  <HighlightedSnippet
+                    text={inspectingChunk.content}
+                    query={results?.query}
+                    expandedKeywords={results?.expandedKeywords}
+                  />
+                </blockquote>
+              </div>
+
+              <div className="citation-inspector-actions">
+                {onSelectNode ? (
+                  <button
+                    type="button"
+                    className="command-button citation-focus-node-btn"
+                    onClick={() => {
+                      setFocusedNodeId(inspectingChunk.nodeId);
+                      onSelectNode(inspectingChunk.nodeId);
+                    }}
+                    title="Focus and select node on canvas"
+                  >
+                    <Target size={13} />
+                    <span>Focus Node</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="command-button accent citation-open-doc-btn"
+                  onClick={() => onOpenSource(inspectingChunk.sourceId)}
+                  title="Open in full document viewer"
+                >
+                  <BookOpen size={13} />
+                  <span>Open Document</span>
+                </button>
+              </div>
             </section>
           ) : null}
 
@@ -457,8 +622,8 @@ export function ResultsSidebar({
                       >
                         <button
                           type="button"
-                          className="result-match-button"
-                          onClick={() => onOpenMatch(chunk)}
+                          className={`result-match-button ${inspectingChunk === chunk ? 'is-active-match' : ''}`}
+                          onClick={() => handleMatchClick(chunk)}
                           title={chunk.content}
                         >
                           <div className="result-match-badges">
@@ -476,6 +641,12 @@ export function ResultsSidebar({
                                 Table
                               </span>
                             ) : null}
+                            {chunk.imageAssetUrl ? (
+                              <span className="result-kind-badge is-image">
+                                <ImageIcon size={10} aria-hidden="true" />
+                                Figure
+                              </span>
+                            ) : null}
                             {chunk.rerankScore ? (
                               <span className="result-kind-badge is-salience">
                                 {Math.round(
@@ -487,8 +658,59 @@ export function ResultsSidebar({
                               </span>
                             ) : null}
                           </div>
+                          {chunk.imageAssetUrl ? (
+                            <div
+                              className="result-match-image-preview is-clickable"
+                              style={
+                                chunk.lqip
+                                  ? {
+                                      backgroundImage: `url("${chunk.lqip}")`,
+                                      backgroundSize: 'cover',
+                                      backgroundPosition: 'center',
+                                    }
+                                  : undefined
+                              }
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openLightbox({
+                                  url: chunk.imageAssetUrl!,
+                                  title: chunk.content.slice(0, 80),
+                                  pageNum: chunk.pageNum,
+                                  sourceName: chunk.sourceName,
+                                  coordinates: chunk.coordinates,
+                                });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openLightbox({
+                                    url: chunk.imageAssetUrl!,
+                                    title: chunk.content.slice(0, 80),
+                                    pageNum: chunk.pageNum,
+                                    sourceName: chunk.sourceName,
+                                    coordinates: chunk.coordinates,
+                                  });
+                                }
+                              }}
+                              title="Click to view full-resolution figure in lightbox"
+                            >
+                              <img
+                                src={chunk.imageAssetUrl}
+                                alt={chunk.content.slice(0, 50)}
+                                className="result-match-thumbnail"
+                                loading="lazy"
+                              />
+                            </div>
+                          ) : null}
                           <span className="result-text">
-                            {formatInlineSnippet(chunk.content)}
+                            <HighlightedSnippet
+                              text={formatInlineSnippet(chunk.content)}
+                              query={results?.query}
+                              expandedKeywords={results?.expandedKeywords}
+                            />
                           </span>
                         </button>
                         {filteredExtended.length > 0 ? (
@@ -503,8 +725,10 @@ export function ResultsSidebar({
                                 >
                                   <button
                                     type="button"
-                                    className="result-extended-button"
-                                    onClick={() => onOpenMatch(extendedChunk)}
+                                    className={`result-extended-button ${inspectingChunk === extendedChunk ? 'is-active-match' : ''}`}
+                                    onClick={() =>
+                                      handleMatchClick(extendedChunk)
+                                    }
                                     title={extendedChunk.content}
                                   >
                                     <div className="result-extended-badges">
@@ -530,14 +754,93 @@ export function ResultsSidebar({
                                           Table
                                         </span>
                                       ) : null}
+                                      {extendedChunk.imageAssetUrl ? (
+                                        <span className="result-kind-badge is-image">
+                                          <ImageIcon
+                                            size={9}
+                                            aria-hidden="true"
+                                          />
+                                          Figure
+                                        </span>
+                                      ) : null}
                                     </div>
+                                    {extendedChunk.imageAssetUrl ? (
+                                      <div
+                                        className="result-match-image-preview is-clickable"
+                                        style={
+                                          extendedChunk.lqip
+                                            ? {
+                                                backgroundImage: `url("${extendedChunk.lqip}")`,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: 'center',
+                                              }
+                                            : undefined
+                                        }
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openLightbox({
+                                            url: extendedChunk.imageAssetUrl!,
+                                            title: extendedChunk.content.slice(
+                                              0,
+                                              80,
+                                            ),
+                                            pageNum: extendedChunk.pageNum,
+                                            sourceName:
+                                              extendedChunk.sourceName,
+                                            coordinates:
+                                              extendedChunk.coordinates,
+                                          });
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (
+                                            e.key === 'Enter' ||
+                                            e.key === ' '
+                                          ) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            openLightbox({
+                                              url: extendedChunk.imageAssetUrl!,
+                                              title:
+                                                extendedChunk.content.slice(
+                                                  0,
+                                                  80,
+                                                ),
+                                              pageNum: extendedChunk.pageNum,
+                                              sourceName:
+                                                extendedChunk.sourceName,
+                                              coordinates:
+                                                extendedChunk.coordinates,
+                                            });
+                                          }
+                                        }}
+                                        title="Click to view full-resolution figure in lightbox"
+                                      >
+                                        <img
+                                          src={extendedChunk.imageAssetUrl}
+                                          alt={extendedChunk.content.slice(
+                                            0,
+                                            50,
+                                          )}
+                                          className="result-match-thumbnail"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    ) : null}
                                     <span className="result-text">
                                       <strong className="result-source-name">
                                         {extendedChunk.sourceName}:
                                       </strong>{' '}
-                                      {formatInlineSnippet(
-                                        extendedChunk.content,
-                                      )}
+                                      <HighlightedSnippet
+                                        text={formatInlineSnippet(
+                                          extendedChunk.content,
+                                        )}
+                                        query={results?.query}
+                                        expandedKeywords={
+                                          results?.expandedKeywords
+                                        }
+                                      />
                                     </span>
                                   </button>
                                 </li>

@@ -33,7 +33,7 @@ const mockIdentity: Identity = {
   email: 'test@example.com',
   username: 'Marie Curie',
   isGuest: false,
-  tier: 'FREE',
+  tier: 'REGISTERED',
 };
 
 describe('AuthDialog', () => {
