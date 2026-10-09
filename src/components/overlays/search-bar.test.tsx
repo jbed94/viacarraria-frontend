@@ -599,6 +599,41 @@ describe('SearchBar', () => {
     expect(useGraphStore.getState().queryType).toBe('crawl');
   });
 
+  it('defaults crawl starting nodes to all available nodes and preserves across mode switches', () => {
+    useGraphStore.setState({
+      queryType: 'simple',
+      crawlStartingNodeIds: [],
+      graph: {
+        nodes: [
+          { id: 'node-1', data: { title: 'Node 1' }, position: { x: 0, y: 0 } },
+          { id: 'node-2', data: { title: 'Node 2' }, position: { x: 50, y: 50 } },
+        ],
+        edges: [],
+      } as any,
+    });
+    render(<SearchBar onSearch={vi.fn()} onCrawl={vi.fn()} tier="REGISTERED" />);
+
+    // Switch to Crawl mode: defaults to all available nodes
+    const crawlBtn = screen.getByRole('radio', { name: 'Crawl' });
+    fireEvent.click(crawlBtn);
+
+    expect(useGraphStore.getState().queryType).toBe('crawl');
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([
+      'node-1',
+      'node-2',
+    ]);
+
+    // Switch back to Simple mode
+    const searchBtn = screen.getByRole('radio', { name: 'Search' });
+    fireEvent.click(searchBtn);
+    expect(useGraphStore.getState().queryType).toBe('simple');
+    // Starting nodes preserved, not wiped
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([
+      'node-1',
+      'node-2',
+    ]);
+  });
+
   it('allows registered users to view crawl exploration settings and add hypothesis groups', () => {
     useGraphStore.setState({
       queryType: 'crawl',

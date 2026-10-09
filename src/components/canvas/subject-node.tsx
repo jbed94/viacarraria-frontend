@@ -49,6 +49,7 @@ export function SubjectNode({ id, data }: NodeProps) {
     (state) => state.toggleCrawlStartingNode,
   );
   const toggleExpanded = useGraphStore((state) => state.toggleExpanded);
+  const setMaximizedNodeId = useGraphStore((state) => state.setMaximizedNodeId);
   const setActiveSourceId = useGraphStore((state) => state.setActiveSourceId);
   const setActiveMatch = useGraphStore((state) => state.setActiveMatch);
   const setEditingNodeId = useGraphStore((state) => state.setEditingNodeId);
@@ -203,7 +204,7 @@ export function SubjectNode({ id, data }: NodeProps) {
 
   return (
     <article
-      className={`subject-node ${isMatched ? 'is-matched' : results ? 'is-muted' : ''} ${isPreviewed ? 'is-previewed' : ''} ${isExpanded ? 'is-expanded' : ''} ${isCrawlStart ? 'is-crawl-start' : ''} ${isCrawlDimmed ? 'is-crawl-dimmed' : ''} ${hasSelector ? 'has-selector' : ''} ${isSelected ? 'is-selected' : ''} ${soloClasses}`.trim()}
+      className={`subject-node ${isMatched ? 'is-matched' : results ? 'is-muted' : ''} ${isPreviewed ? 'is-previewed' : ''} ${isExpanded ? 'nopan is-expanded' : ''} ${isCrawlStart ? 'is-crawl-start' : ''} ${isCrawlDimmed ? 'is-crawl-dimmed' : ''} ${hasSelector ? 'has-selector' : ''} ${isSelected ? 'is-selected' : ''} ${soloClasses}`.trim()}
     >
       <Handle
         type="target"
@@ -402,18 +403,35 @@ export function SubjectNode({ id, data }: NodeProps) {
         <section
           className="node-details nodrag nopan nowheel"
           onWheel={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
         >
           <div className="node-details-header">
             <span>{t('topicDetails')}</span>
-            <button
-              type="button"
-              className="collapse-node"
-              title={t('collapseDetails')}
-              aria-label={t('collapseDetails')}
-              onClick={() => toggleExpanded(id)}
-            >
-              <ChevronUp size={16} aria-hidden="true" />
-            </button>
+            <div className="node-details-header-actions">
+              <button
+                type="button"
+                className="maximize-node-btn"
+                title="Open expanded view"
+                aria-label="Open expanded view"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMaximizedNodeId(id);
+                }}
+              >
+                <Maximize2 size={13} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="collapse-node"
+                title={t('collapseDetails')}
+                aria-label={t('collapseDetails')}
+                onClick={() => toggleExpanded(id)}
+              >
+                <ChevronUp size={16} aria-hidden="true" />
+              </button>
+            </div>
           </div>
           {isEditing ? (
             <div className="detail-section">
@@ -749,6 +767,19 @@ export function SubjectNode({ id, data }: NodeProps) {
               )}
             </div>
           ) : null}
+          <div className="node-details-footer">
+            <button
+              type="button"
+              className="node-full-view-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMaximizedNodeId(id);
+              }}
+            >
+              <Maximize2 size={11} aria-hidden="true" />
+              <span>Full Topic View</span>
+            </button>
+          </div>
         </section>
       ) : null}
     </article>

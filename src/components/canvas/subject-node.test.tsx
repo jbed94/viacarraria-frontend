@@ -968,5 +968,45 @@ describe('SubjectNode Canvas Component', () => {
       expect(article).not.toHaveClass('is-previewed');
       expect(screen.queryByText('Suggested Concept')).not.toBeInTheDocument();
     });
+
+    it('applies nopan class when expanded and isolates touch events inside node-details', () => {
+      useGraphStore.setState({
+        expandedNodeIds: ['node-1'],
+      });
+
+      render(
+        <SubjectNode
+          id="node-1"
+          data={{ title: 'Target Node', description: 'Detailed syllabus' }}
+          {...({} as any)}
+        />,
+      );
+
+      const article = screen.getByRole('article');
+      expect(article).toHaveClass('is-expanded');
+      expect(article).toHaveClass('nopan');
+
+      const detailsSection = article.querySelector('.node-details');
+      expect(detailsSection).toBeInTheDocument();
+      expect(detailsSection).toHaveClass('nopan');
+      expect(detailsSection).toHaveClass('nodrag');
+      expect(detailsSection).toHaveClass('nowheel');
+
+      const touchStartEvent = new Event('touchstart', { bubbles: true });
+      const touchMoveEvent = new Event('touchmove', { bubbles: true });
+      const touchEndEvent = new Event('touchend', { bubbles: true });
+
+      const stopPropagationSpy = vi.spyOn(touchStartEvent, 'stopPropagation');
+      detailsSection?.dispatchEvent(touchStartEvent);
+      expect(stopPropagationSpy).toHaveBeenCalled();
+
+      const moveSpy = vi.spyOn(touchMoveEvent, 'stopPropagation');
+      detailsSection?.dispatchEvent(touchMoveEvent);
+      expect(moveSpy).toHaveBeenCalled();
+
+      const endSpy = vi.spyOn(touchEndEvent, 'stopPropagation');
+      detailsSection?.dispatchEvent(touchEndEvent);
+      expect(endSpy).toHaveBeenCalled();
+    });
   });
 });

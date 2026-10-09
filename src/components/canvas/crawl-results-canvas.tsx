@@ -2910,6 +2910,11 @@ function CrawlResultsCanvasInner({
         nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={true}
+        zoomOnPinch={true}
+        panOnScroll={false}
+        zoomOnScroll={true}
+        panOnDrag={true}
+        preventScrolling={true}
         onPaneClick={() => setActivePathNodeId(null)}
         proOptions={{ hideAttribution: true }}
       >

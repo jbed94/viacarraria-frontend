@@ -303,6 +303,11 @@ export function GraphCanvas() {
         }
         nodesDraggable={isEditing}
         nodesConnectable={isEditing}
+        zoomOnPinch={true}
+        panOnScroll={false}
+        zoomOnScroll={true}
+        panOnDrag={true}
+        preventScrolling={true}
         fitView
         fitViewOptions={{
           nodes: (graphNodes ?? [])

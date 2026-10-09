@@ -78,9 +78,11 @@ type GraphStore = {
   activeUploads: Record<string, ActiveUpload>;
   isFocusMode: boolean;
   focusedNodeId?: string;
+  maximizedNodeId?: string;
   setFocusMode: (val: boolean) => void;
   toggleFocusMode: () => void;
   setFocusedNodeId: (id?: string) => void;
+  setMaximizedNodeId: (id?: string) => void;
   setIdentity: (identity?: Identity) => void;
   setGraphs: (graphs: GraphSummary[]) => void;
   setGraph: (graph: Graph) => void;
@@ -133,6 +135,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
   minRelevanceScore: 0,
   history: [],
   expandedNodeIds: [],
+  maximizedNodeId: undefined,
   isEditing: false,
   isLoading: true,
   activeUploads: {},
@@ -141,6 +144,7 @@ export const useGraphStore = create<GraphStore>((set) => ({
   setFocusMode: (isFocusMode) => set({ isFocusMode }),
   toggleFocusMode: () => set((state) => ({ isFocusMode: !state.isFocusMode })),
   setFocusedNodeId: (focusedNodeId) => set({ focusedNodeId }),
+  setMaximizedNodeId: (maximizedNodeId) => set({ maximizedNodeId }),
   setIdentity: (identity) => set({ identity }),
   setGraphs: (graphs) => set({ graphs }),
   setGraph: (graph) =>
@@ -151,8 +155,11 @@ export const useGraphStore = create<GraphStore>((set) => ({
         .slice(0, state.identity?.tier === 'ANONYMOUS' ? 2 : undefined)
         .map((node) => node.id),
       previewNodeIds: [],
-      crawlStartingNodeIds: [],
+      crawlStartingNodeIds: graph.nodes
+        .slice(0, state.identity?.tier === 'ANONYMOUS' ? 1 : undefined)
+        .map((node) => node.id),
       expandedNodeIds: [],
+      maximizedNodeId: undefined,
       results: undefined,
       crawlResults: undefined,
       minRelevanceScore: 0,
@@ -167,16 +174,26 @@ export const useGraphStore = create<GraphStore>((set) => ({
   setQueryType: (queryType) =>
     set((state) => {
       let nextMode = state.mode;
+      let nextCrawlStartingNodeIds = state.crawlStartingNodeIds;
       if (queryType === 'crawl') {
         if (state.mode === 'IDLE' || state.mode === 'CONTEXT_SELECTION') {
           nextMode = 'CRAWL_SELECTION';
+        }
+        if (nextCrawlStartingNodeIds.length === 0 && state.graph) {
+          nextCrawlStartingNodeIds = state.graph.nodes
+            .slice(0, state.identity?.tier === 'ANONYMOUS' ? 1 : undefined)
+            .map((node) => node.id);
         }
       } else {
         if (state.mode === 'CRAWL_SELECTION') {
           nextMode = 'CONTEXT_SELECTION';
         }
       }
-      return { queryType, mode: nextMode };
+      return {
+        queryType,
+        mode: nextMode,
+        crawlStartingNodeIds: nextCrawlStartingNodeIds,
+      };
     }),
   setHistory: (history) => set({ history }),
   setResults: (results) =>
@@ -202,20 +219,25 @@ export const useGraphStore = create<GraphStore>((set) => ({
     }),
   setMinRelevanceScore: (minRelevanceScore) => set({ minRelevanceScore }),
   clearResults: () =>
-    set({
+    set((state) => ({
       results: undefined,
       crawlResults: undefined,
       minRelevanceScore: 0,
       mode: 'IDLE',
       previewNodeIds: [],
-      crawlStartingNodeIds: [],
+      crawlStartingNodeIds: state.graph
+        ? state.graph.nodes
+            .slice(0, state.identity?.tier === 'ANONYMOUS' ? 1 : undefined)
+            .map((node) => node.id)
+        : [],
       activeSourceId: undefined,
       activeMatch: undefined,
       activeLightboxFigure: null,
       expandedNodeIds: [],
+      maximizedNodeId: undefined,
       isFocusMode: false,
       focusedNodeId: undefined,
-    }),
+    })),
   collapseAllNodes: () =>
     set((state) => {
       if (state.expandedNodeIds.length === 0) return state;

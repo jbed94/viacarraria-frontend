@@ -115,4 +115,61 @@ describe('GraphStore Layout Stability', () => {
     expect(updated.graph?.nodes[0]?.position).toEqual({ x: 120, y: 220 });
     expect(updated.expandedNodeIds).toEqual([]);
   });
+
+  it('selects all nodes by default for crawl starting nodes when graph is loaded', () => {
+    useGraphStore.getState().setGraph(initialGraph);
+    const store = useGraphStore.getState();
+    expect(store.crawlStartingNodeIds).toEqual(['node-1', 'node-2']);
+    expect(store.selectedNodeIds).toEqual(['node-1', 'node-2']);
+  });
+
+  it('caps default crawl starting nodes to 1 for anonymous users', () => {
+    useGraphStore.getState().setIdentity({
+      userId: 'guest',
+      email: 'guest@example.com',
+      username: 'guest',
+      tier: 'ANONYMOUS',
+      isGuest: true,
+    });
+    useGraphStore.getState().setGraph(initialGraph);
+    const store = useGraphStore.getState();
+    expect(store.crawlStartingNodeIds).toEqual(['node-1']);
+  });
+
+  it('populates crawl starting nodes when switching queryType to crawl if empty', () => {
+    useGraphStore.getState().setIdentity({
+      userId: 'user',
+      email: 'user@example.com',
+      username: 'user',
+      tier: 'REGISTERED',
+      isGuest: false,
+    });
+    useGraphStore.getState().setGraph(initialGraph);
+    useGraphStore.getState().setCrawlStartingNodeIds([]);
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([]);
+
+    useGraphStore.getState().setQueryType('crawl');
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([
+      'node-1',
+      'node-2',
+    ]);
+  });
+
+  it('resets crawl starting nodes to all available nodes when clearing results', () => {
+    useGraphStore.getState().setIdentity({
+      userId: 'user',
+      email: 'user@example.com',
+      username: 'user',
+      tier: 'REGISTERED',
+      isGuest: false,
+    });
+    useGraphStore.getState().setGraph(initialGraph);
+    useGraphStore.getState().setCrawlStartingNodeIds(['node-1']);
+
+    useGraphStore.getState().clearResults();
+    expect(useGraphStore.getState().crawlStartingNodeIds).toEqual([
+      'node-1',
+      'node-2',
+    ]);
+  });
 });

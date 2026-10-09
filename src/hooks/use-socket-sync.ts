@@ -39,10 +39,16 @@ export function useSocketSync({
   });
 
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_WS_URL ?? 'ws://localhost:3000/ws', {
-      transports: ['websocket'],
-      withCredentials: true,
-    });
+    const wsUrl = import.meta.env.VITE_WS_URL;
+    const socket = wsUrl
+      ? io(wsUrl, {
+          transports: ['websocket'],
+          withCredentials: true,
+        })
+      : io('/ws', {
+          transports: ['websocket'],
+          withCredentials: true,
+        });
 
     if (graphId) {
       if (socket.connected) {

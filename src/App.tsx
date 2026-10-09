@@ -17,6 +17,7 @@ import { AuthDialog } from './components/dialogs/auth-dialog';
 import { ConfirmationDialog } from './components/dialogs/confirmation-dialog';
 import { CopyGraphDialog } from './components/dialogs/copy-graph-dialog';
 import { GraphDialog } from './components/dialogs/graph-dialog';
+import { NodeDetailModal } from './components/dialogs/node-detail-modal';
 import { EditorControls } from './components/overlays/editor-controls';
 import { Header } from './components/overlays/header';
 import { HistoryDrawer } from './components/overlays/history-drawer';
@@ -765,6 +766,7 @@ export function App() {
           onClose={closeLightbox}
         />
       </Suspense>
+      <NodeDetailModal />
       <ConfirmationDialog
         open={Boolean(pendingDeleteNodeId)}
         onOpenChange={(open) => !open && setPendingDeleteNodeId(undefined)}

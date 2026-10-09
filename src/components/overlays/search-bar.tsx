@@ -580,10 +580,16 @@ export function SearchBar({
     if (target === 'crawl') {
       setQueryType('crawl');
       setMode('CRAWL_SELECTION');
+      if (crawlStartingNodeIds.length === 0 && graph) {
+        setCrawlStartingNodeIds(
+          graph.nodes
+            .slice(0, isAnonymous ? 1 : undefined)
+            .map((node) => node.id),
+        );
+      }
     } else {
       setQueryType('simple');
       setMode(selectedNodeIds.length > 0 ? 'CONTEXT_SELECTION' : 'IDLE');
-      setCrawlStartingNodeIds([]);
     }
   }
 
