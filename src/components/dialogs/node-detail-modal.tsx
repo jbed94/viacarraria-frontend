@@ -1,10 +1,4 @@
-import {
-  Compass,
-  FileCode,
-  FileText,
-  Layers,
-  Sparkles,
-} from 'lucide-react';
+import { Compass, FileCode, FileText, Layers, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -18,7 +12,9 @@ export function NodeDetailModal() {
   const setMaximizedNodeId = useGraphStore((state) => state.setMaximizedNodeId);
   const graph = useGraphStore((state) => state.graph);
   const selectedNodeIds = useGraphStore((state) => state.selectedNodeIds);
-  const toggleNodeSelection = useGraphStore((state) => state.toggleNodeSelection);
+  const toggleNodeSelection = useGraphStore(
+    (state) => state.toggleNodeSelection,
+  );
   const crawlStartingNodeIds = useGraphStore(
     (state) => state.crawlStartingNodeIds,
   );
@@ -81,8 +77,7 @@ export function NodeDetailModal() {
               <span className="node-detail-sources-pill">
                 <FileText size={12} aria-hidden="true" />
                 <span>
-                  {sources.length}{' '}
-                  {sources.length === 1 ? 'source' : 'sources'}
+                  {sources.length} {sources.length === 1 ? 'source' : 'sources'}
                 </span>
               </span>
             )}
@@ -111,7 +106,9 @@ export function NodeDetailModal() {
                 }
               >
                 <Compass size={14} aria-hidden="true" />
-                <span>{isCrawlStart ? 'Seed Node (Active)' : 'Set as Seed'}</span>
+                <span>
+                  {isCrawlStart ? 'Seed Node (Active)' : 'Set as Seed'}
+                </span>
               </button>
             ) : (
               <button
@@ -125,7 +122,9 @@ export function NodeDetailModal() {
                     : undefined
                 }
               >
-                <span>{isSelected ? 'Included in Search' : 'Include in Search'}</span>
+                <span>
+                  {isSelected ? 'Included in Search' : 'Include in Search'}
+                </span>
               </button>
             )}
           </div>
@@ -151,7 +150,11 @@ export function NodeDetailModal() {
         {nodeMatches.length > 0 && (
           <section className="node-detail-section">
             <h3 className="node-detail-section-title">
-              <Sparkles size={14} className="section-title-icon" aria-hidden="true" />
+              <Sparkles
+                size={14}
+                className="section-title-icon"
+                aria-hidden="true"
+              />
               <span>{t('searchMatches', 'Search Matches')}</span>
             </h3>
             <div className="node-detail-matches-list">
@@ -166,7 +169,9 @@ export function NodeDetailModal() {
                   }}
                 >
                   <div className="match-item-header">
-                    <span className="match-source-name">{chunk.sourceName}</span>
+                    <span className="match-source-name">
+                      {chunk.sourceName}
+                    </span>
                     <span className="match-score-badge">
                       {(chunk.score * 100).toFixed(0)}% relevance
                     </span>
@@ -183,7 +188,11 @@ export function NodeDetailModal() {
         {/* Attached Sources Section */}
         <section className="node-detail-section">
           <h3 className="node-detail-section-title">
-            <FileText size={14} className="section-title-icon" aria-hidden="true" />
+            <FileText
+              size={14}
+              className="section-title-icon"
+              aria-hidden="true"
+            />
             <span>{t('attachedSources', 'Attached Sources')}</span>
           </h3>
           {sources.length === 0 ? (

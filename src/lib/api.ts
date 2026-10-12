@@ -3,8 +3,6 @@ import type {
   AdConfig,
   AdContextTag,
   AdContextTagStats,
-  AdTelemetryPayload,
-  AdTelemetryStatus,
   AdminBatchResult,
   AdminGraph,
   AdminGraphDetails,
@@ -14,11 +12,14 @@ import type {
   AdminSystemStatus,
   AdminUser,
   AdminUserDetails,
+  AdTelemetryPayload,
+  AdTelemetryStatus,
   AuditArchivePreviewResponse,
   AuditLogArchive,
   CancelCrawlResponse,
   CrawlDepth,
   CrawlDirection,
+  CrawlJobResponse,
   CrawlResponse,
   CrawlSettings,
   CreateAdContextTagDto,
@@ -49,8 +50,8 @@ import type {
   StorageProxyStatus,
   SubscriptionTier,
   TelemetryDateRange,
-  UpdateAdminSystemSettingsDto,
   UpdateAdContextTagDto,
+  UpdateAdminSystemSettingsDto,
   UpdatePlanDto,
 } from '../types/api';
 
@@ -96,6 +97,7 @@ type AuthUser = {
   username?: string | null;
   isAnonymous?: boolean | null;
   subscriptionTier?: string | null;
+  emailVerified?: boolean | null;
 };
 
 type AuthResponse = {
@@ -113,6 +115,7 @@ function identityFromUser(user: AuthUser): Identity {
     isGuest,
     tier,
     role: (user as any).role ?? ((user as any).isAdmin ? 'admin' : undefined),
+    emailVerified: user.emailVerified === true,
   };
 }
 
@@ -910,6 +913,25 @@ export const api = {
     };
   },
   logout: () => request<void>('/auth/sign-out', { method: 'POST', body: '{}' }),
+  sendVerificationEmail: async (email: string, callbackURL?: string) => {
+    return request<{ status: boolean }>('/auth/send-verification-email', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        callbackURL:
+          callbackURL ??
+          (typeof window !== 'undefined'
+            ? `${window.location.origin}/?verified=true`
+            : undefined),
+      }),
+    });
+  },
+  verifyEmail: async (token: string) => {
+    return request<{ status: boolean; user: AuthUser | null }>(
+      `/auth/verify-email?token=${encodeURIComponent(token)}`,
+      { method: 'GET' },
+    );
+  },
   googleSignIn: async () => {
     const result = await request<{ url?: string }>('/auth/sign-in/social', {
       method: 'POST',
@@ -1003,7 +1025,7 @@ export const api = {
     options?: { signal?: AbortSignal },
     crawlSettings?: CrawlSettings,
   ) =>
-    request<CrawlResponse>('/search/crawl', {
+    request<CrawlResponse | CrawlJobResponse>('/search/crawl', {
       method: 'POST',
       signal: options?.signal,
       body: JSON.stringify({
@@ -1019,6 +1041,11 @@ export const api = {
         ...(hypothesisGroups?.length ? { hypothesisGroups } : {}),
         ...(crawlSettings ?? {}),
       }),
+    }),
+  getCrawlJob: (jobId: string, options?: { signal?: AbortSignal }) =>
+    request<CrawlJobResponse>(`/search/crawl/${jobId}`, {
+      method: 'GET',
+      signal: options?.signal,
     }),
   cancelCrawl: (jobId: string) =>
     request<CancelCrawlResponse>(`/search/crawl/${jobId}/cancel`, {

@@ -251,6 +251,7 @@ export function SearchBar({
     { value: 'forward' as const, label: t('directionForward') },
     { value: 'backward' as const, label: t('directionBackward') },
     { value: 'both' as const, label: t('directionBoth') },
+    { value: 'global' as const, label: t('directionGlobal') },
   ];
 
   const scopeOptions = [
@@ -542,6 +543,12 @@ export function SearchBar({
               crawlSettings,
             );
           }
+          setQuery('');
+          if (inputRef.current) {
+            inputRef.current.value = '';
+          }
+          dismissSuggestions();
+          setSuggestions(null);
         }
       } finally {
         setSubmitting(false);

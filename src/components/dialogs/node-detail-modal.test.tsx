@@ -13,7 +13,8 @@ describe('NodeDetailModal', () => {
         position: { x: 0, y: 0 },
         data: {
           title: 'Consensus Protocols',
-          description: 'Paxos, Raft, and Byzantine Fault Tolerance fundamentals.',
+          description:
+            'Paxos, Raft, and Byzantine Fault Tolerance fundamentals.',
         },
       },
       {
@@ -79,7 +80,9 @@ describe('NodeDetailModal', () => {
     useGraphStore.getState().setSelectedNodeIds([]);
     render(<NodeDetailModal />);
 
-    const includeBtn = screen.getByRole('button', { name: 'Include in Search' });
+    const includeBtn = screen.getByRole('button', {
+      name: 'Include in Search',
+    });
     fireEvent.click(includeBtn);
 
     expect(useGraphStore.getState().selectedNodeIds).toContain('node-1');

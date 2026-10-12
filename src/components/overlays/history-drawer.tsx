@@ -17,6 +17,7 @@ import {
 } from 'react';
 
 import type {
+  ActiveCrawlJob,
   CrawlResponse,
   QueryHistory,
   SearchResponse,
@@ -39,6 +40,8 @@ export type HistoryFilterMode = 'all' | 'pinned' | 'search' | 'crawl';
 
 type HistoryDrawerProps = {
   entries: QueryHistory[];
+  activeCrawlJobs?: ActiveCrawlJob[];
+  onCancelCrawlJob?: (jobId: string) => void;
   onRestore: (entry: QueryHistory) => void;
   onEdit: (entry: QueryHistory) => void;
   onTogglePin: (entry: QueryHistory) => void;
@@ -48,6 +51,8 @@ type HistoryDrawerProps = {
 
 export function HistoryDrawer({
   entries,
+  activeCrawlJobs,
+  onCancelCrawlJob,
   onRestore,
   onEdit,
   onTogglePin,
@@ -528,9 +533,68 @@ export function HistoryDrawer({
       ) : null}
 
       <div className="history-list">
-        {entries.length === 0 ? (
+        {activeCrawlJobs && activeCrawlJobs.length > 0 ? (
+          <div className="active-crawl-jobs-section">
+            <div className="active-crawl-jobs-header">
+              <Compass size={11} className="spin-slow" aria-hidden="true" />
+              <span>Pending & Ongoing Crawls ({activeCrawlJobs.length})</span>
+            </div>
+            {activeCrawlJobs.map((job) => (
+              <div key={job.jobId} className="active-crawl-job-card">
+                <div className="active-crawl-job-top">
+                  <strong
+                    className="active-crawl-job-title"
+                    title={job.queryText}
+                  >
+                    {job.queryText}
+                  </strong>
+                  <div className="active-crawl-job-actions">
+                    <span
+                      className={`active-crawl-status-badge ${job.status.toLowerCase()}`}
+                    >
+                      {job.status === 'QUEUED'
+                        ? 'Queued'
+                        : job.status === 'PROCESSING'
+                          ? 'Crawling...'
+                          : job.status}
+                    </span>
+                    {onCancelCrawlJob && job.status !== 'COMPLETED' ? (
+                      <button
+                        type="button"
+                        className="active-crawl-cancel-btn"
+                        title="Cancel crawl"
+                        aria-label="Cancel crawl"
+                        onClick={() => onCancelCrawlJob(job.jobId)}
+                      >
+                        <X size={12} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="crawl-job-progress-track">
+                  <div
+                    className="crawl-job-progress-fill"
+                    style={{ width: `${job.progress ?? 15}%` }}
+                  />
+                </div>
+                <div className="active-crawl-job-footer">
+                  <small>
+                    {job.message ||
+                      (job.level !== undefined
+                        ? `Level ${job.level} • ${job.matchesCount ?? 0} matches`
+                        : 'Crawling knowledge frontier...')}
+                  </small>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {entries.length === 0 &&
+        (!activeCrawlJobs || activeCrawlJobs.length === 0) ? (
           <p className="empty-state">Your searches will collect here.</p>
-        ) : filteredEntries.length === 0 ? (
+        ) : filteredEntries.length === 0 &&
+          (!activeCrawlJobs || activeCrawlJobs.length === 0) ? (
           <p className="empty-state">No queries match this filter.</p>
         ) : (
           <>

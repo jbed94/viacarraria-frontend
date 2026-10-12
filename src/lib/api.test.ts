@@ -1528,5 +1528,35 @@ describe('Frontend API Client - Resumable & Presigned S3 Uploads', () => {
         }),
       );
     });
+
+    it('api.getCrawlJob retrieves async crawl job status and result', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobId: 'job-123',
+          status: 'COMPLETED',
+          result: {
+            queryId: 'q-1',
+            queryType: 'crawl',
+            nodes: [],
+            edges: [],
+          },
+        }),
+      });
+      globalThis.fetch = fetchMock as any;
+
+      const jobState = await api.getCrawlJob('job-123');
+
+      expect(jobState.jobId).toBe('job-123');
+      expect(jobState.status).toBe('COMPLETED');
+      expect(jobState.result?.queryId).toBe('q-1');
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/search/crawl/job-123'),
+        expect.objectContaining({
+          method: 'GET',
+        }),
+      );
+    });
   });
 });

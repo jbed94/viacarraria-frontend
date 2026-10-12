@@ -6,6 +6,8 @@ import {
   Lock,
   LogIn,
   Mail,
+  MailCheck,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   User,
@@ -66,24 +68,53 @@ export function AuthDialog({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string>();
   const [isSubmitting, setSubmitting] = useState(false);
+  const [activationNoticeEmail, setActivationNoticeEmail] = useState<
+    string | null
+  >(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent'>(
+    'idle',
+  );
+  const [unverifiedLoginEmail, setUnverifiedLoginEmail] = useState<
+    string | null
+  >(null);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSubmitting(true);
     setError(undefined);
     try {
-      const result =
-        mode === 'login'
-          ? await api.login(email, password)
-          : await api.register(email, password, username);
-      onAuthenticated(result.identity);
-      onOpenChange(false);
+      if (mode === 'login') {
+        const result = await api.login(email, password);
+        onAuthenticated(result.identity);
+        onOpenChange(false);
+      } else {
+        const result = await api.register(email, password, username);
+        if (result.identity.emailVerified === false || !result.token) {
+          setActivationNoticeEmail(email);
+        } else {
+          onAuthenticated(result.identity);
+          onOpenChange(false);
+        }
+      }
     } catch (requestError) {
-      setError(
+      const message =
         requestError instanceof ApiError
           ? requestError.message
-          : 'Unable to continue.',
-      );
+          : 'Unable to continue.';
+
+      if (
+        mode === 'login' &&
+        (message.toLowerCase().includes('email not verified') ||
+          (requestError instanceof ApiError && requestError.status === 403))
+      ) {
+        setUnverifiedLoginEmail(email);
+        setError(
+          'Your account is not activated. Please verify your email before logging in.',
+        );
+      } else {
+        setUnverifiedLoginEmail(null);
+        setError(message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -92,190 +123,319 @@ export function AuthDialog({
   return (
     <DialogFrame
       open={open}
-      onOpenChange={onOpenChange}
-      title={mode === 'login' ? 'Welcome Back' : 'Create Account'}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setActivationNoticeEmail(null);
+          setUnverifiedLoginEmail(null);
+          setError(undefined);
+          setResendStatus('idle');
+        }
+        onOpenChange(nextOpen);
+      }}
+      title={
+        activationNoticeEmail
+          ? 'Verify Your Email'
+          : mode === 'login'
+            ? 'Welcome Back'
+            : 'Create Account'
+      }
       className="auth-dialog-frame"
     >
       <div className="auth-dialog-body">
-        <div className="auth-intro-lockup">
-          <div className="auth-brand-badge" aria-hidden="true">
-            <ViaCarrariaIcon size={26} variant="bare" interactive />
-          </div>
-          <p className="auth-subtitle">
-            {mode === 'login'
-              ? 'Sign in to access your private workspaces, custom notes, and saved graphs.'
-              : 'Join Via Carraria to map complex domains with AI-powered semantic retrieval.'}
-          </p>
-        </div>
-
-        <div
-          className="auth-segmented-tabs"
-          role="tablist"
-          aria-label="Authentication mode"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'register'}
-            className={`auth-tab-btn ${mode === 'register' ? 'is-active' : ''}`}
-            onClick={() => {
-              setMode('register');
-              setError(undefined);
-            }}
-          >
-            <UserPlus size={15} aria-hidden="true" />
-            <span>Sign up</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'login'}
-            className={`auth-tab-btn ${mode === 'login' ? 'is-active' : ''}`}
-            onClick={() => {
-              setMode('login');
-              setError(undefined);
-            }}
-          >
-            <LogIn size={15} aria-hidden="true" />
-            <span>Log in</span>
-          </button>
-        </div>
-
-        <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          {mode === 'register' ? (
-            <div className="auth-field-group">
-              <label htmlFor="auth-name-input">Full Name</label>
-              <div className="auth-input-wrapper">
-                <User
-                  size={15}
-                  className="auth-field-icon"
-                  aria-hidden="true"
-                />
-                <input
-                  id="auth-name-input"
-                  required
-                  minLength={2}
-                  placeholder="e.g. Marie Curie"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  autoComplete="name"
-                />
+        {activationNoticeEmail ? (
+          <div className="auth-activation-notice" role="status">
+            <div className="auth-activation-icon" aria-hidden="true">
+              <MailCheck size={36} />
+            </div>
+            <h3 className="auth-activation-title">Activate Your Account</h3>
+            <p className="auth-activation-description">
+              We sent an activation link to{' '}
+              <strong>{activationNoticeEmail}</strong>. Please check your inbox
+              and click the link to activate your account.
+            </p>
+            {error ? (
+              <div className="auth-error-banner" role="alert">
+                <span>{error}</span>
               </div>
-            </div>
-          ) : null}
-
-          <div className="auth-field-group">
-            <label htmlFor="auth-email-input">Email Address</label>
-            <div className="auth-input-wrapper">
-              <Mail size={15} className="auth-field-icon" aria-hidden="true" />
-              <input
-                id="auth-email-input"
-                required
-                type="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-              />
-            </div>
-          </div>
-
-          <div className="auth-field-group">
-            <label htmlFor="auth-password-input">Password</label>
-            <div className="auth-input-wrapper">
-              <Lock size={15} className="auth-field-icon" aria-hidden="true" />
-              <input
-                id="auth-password-input"
-                required
-                type={showPassword ? 'text' : 'password'}
-                minLength={8}
-                placeholder={
-                  mode === 'register'
-                    ? 'At least 8 characters'
-                    : 'Enter your password'
-                }
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={
-                  mode === 'register' ? 'new-password' : 'current-password'
-                }
-              />
+            ) : null}
+            <div className="auth-activation-actions">
               <button
                 type="button"
-                className="auth-password-toggle-btn"
-                title={showPassword ? 'Hide password' : 'Show password'}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
+                className="command-button accent auth-submit-btn"
+                disabled={resendStatus === 'sending'}
+                onClick={async () => {
+                  setResendStatus('sending');
+                  setError(undefined);
+                  try {
+                    await api.sendVerificationEmail(activationNoticeEmail);
+                    setResendStatus('sent');
+                  } catch (err) {
+                    setError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'Failed to resend activation email. Please try again.',
+                    );
+                    setResendStatus('idle');
+                  }
+                }}
               >
-                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                {resendStatus === 'sending' ? (
+                  <>
+                    <Loader2 size={15} className="spin" aria-hidden="true" />
+                    <span>Resending...</span>
+                  </>
+                ) : resendStatus === 'sent' ? (
+                  <span>Activation link resent!</span>
+                ) : (
+                  <>
+                    <RefreshCw size={15} aria-hidden="true" />
+                    <span>Resend activation email</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="command-button auth-back-login-btn"
+                onClick={() => {
+                  setActivationNoticeEmail(null);
+                  setMode('login');
+                  setError(undefined);
+                  setResendStatus('idle');
+                }}
+              >
+                Back to Log In
               </button>
             </div>
           </div>
-
-          {error ? (
-            <div className="auth-error-banner" role="alert">
-              <span>{error}</span>
+        ) : (
+          <>
+            <div className="auth-intro-lockup">
+              <div className="auth-brand-badge" aria-hidden="true">
+                <ViaCarrariaIcon size={26} variant="bare" interactive />
+              </div>
+              <p className="auth-subtitle">
+                {mode === 'login'
+                  ? 'Sign in to access your private workspaces, custom notes, and saved graphs.'
+                  : 'Join Via Carraria to map complex domains with AI-powered semantic retrieval.'}
+              </p>
             </div>
-          ) : null}
 
-          <button
-            type="submit"
-            className="command-button accent auth-submit-btn"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 size={16} className="spin" aria-hidden="true" />
+            <div
+              className="auth-segmented-tabs"
+              role="tablist"
+              aria-label="Authentication mode"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'register'}
+                className={`auth-tab-btn ${mode === 'register' ? 'is-active' : ''}`}
+                onClick={() => {
+                  setMode('register');
+                  setError(undefined);
+                  setUnverifiedLoginEmail(null);
+                }}
+              >
+                <UserPlus size={15} aria-hidden="true" />
+                <span>Sign up</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'login'}
+                className={`auth-tab-btn ${mode === 'login' ? 'is-active' : ''}`}
+                onClick={() => {
+                  setMode('login');
+                  setError(undefined);
+                  setUnverifiedLoginEmail(null);
+                }}
+              >
+                <LogIn size={15} aria-hidden="true" />
+                <span>Log in</span>
+              </button>
+            </div>
+
+            <form
+              className="auth-form"
+              onSubmit={(event) => void submit(event)}
+            >
+              {mode === 'register' ? (
+                <div className="auth-field-group">
+                  <label htmlFor="auth-name-input">Full Name</label>
+                  <div className="auth-input-wrapper">
+                    <User
+                      size={15}
+                      className="auth-field-icon"
+                      aria-hidden="true"
+                    />
+                    <input
+                      id="auth-name-input"
+                      required
+                      minLength={2}
+                      placeholder="e.g. Marie Curie"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoComplete="name"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="auth-field-group">
+                <label htmlFor="auth-email-input">Email Address</label>
+                <div className="auth-input-wrapper">
+                  <Mail
+                    size={15}
+                    className="auth-field-icon"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="auth-email-input"
+                    required
+                    type="email"
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+
+              <div className="auth-field-group">
+                <label htmlFor="auth-password-input">Password</label>
+                <div className="auth-input-wrapper">
+                  <Lock
+                    size={15}
+                    className="auth-field-icon"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="auth-password-input"
+                    required
+                    type={showPassword ? 'text' : 'password'}
+                    minLength={8}
+                    placeholder={
+                      mode === 'register'
+                        ? 'At least 8 characters'
+                        : 'Enter your password'
+                    }
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    autoComplete={
+                      mode === 'register' ? 'new-password' : 'current-password'
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="auth-password-toggle-btn"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={
+                      showPassword ? 'Hide password' : 'Show password'
+                    }
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {error ? (
+                <div className="auth-error-banner" role="alert">
+                  <span>{error}</span>
+                  {unverifiedLoginEmail ? (
+                    <button
+                      type="button"
+                      className="auth-inline-resend-btn"
+                      disabled={resendStatus === 'sending'}
+                      onClick={async () => {
+                        setResendStatus('sending');
+                        try {
+                          await api.sendVerificationEmail(unverifiedLoginEmail);
+                          setResendStatus('sent');
+                        } catch (err) {
+                          setError(
+                            err instanceof ApiError
+                              ? err.message
+                              : 'Failed to resend activation link. Please try again.',
+                          );
+                          setResendStatus('idle');
+                        }
+                      }}
+                    >
+                      {resendStatus === 'sending'
+                        ? 'Resending...'
+                        : resendStatus === 'sent'
+                          ? 'Resent!'
+                          : 'Resend activation link'}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <button
+                type="submit"
+                className="command-button accent auth-submit-btn"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={16} className="spin" aria-hidden="true" />
+                    <span>
+                      {mode === 'login'
+                        ? 'Signing in...'
+                        : 'Creating account...'}
+                    </span>
+                  </>
+                ) : mode === 'login' ? (
+                  <>
+                    <span>Log in to Workspace</span>
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </>
+                ) : (
+                  <>
+                    <span>Get Started Free</span>
+                    <Sparkles size={15} aria-hidden="true" />
+                  </>
+                )}
+              </button>
+
+              <div className="auth-divider" aria-hidden="true">
+                <span className="auth-divider-label">or continue with</span>
+              </div>
+
+              <button
+                type="button"
+                className="command-button auth-google-btn"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setSubmitting(true);
+                  setError(undefined);
+                  void api
+                    .googleSignIn()
+                    .catch((requestError) => {
+                      setError(
+                        requestError instanceof ApiError
+                          ? requestError.message
+                          : 'Google sign-in is unavailable.',
+                      );
+                    })
+                    .finally(() => setSubmitting(false));
+                }}
+              >
+                <GoogleIcon />
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="auth-trust-footer">
+                <ShieldCheck size={13} aria-hidden="true" />
                 <span>
-                  {mode === 'login' ? 'Signing in...' : 'Creating account...'}
+                  End-to-end encrypted session · Privacy-first storage
                 </span>
-              </>
-            ) : mode === 'login' ? (
-              <>
-                <span>Log in to Workspace</span>
-                <ArrowRight size={15} aria-hidden="true" />
-              </>
-            ) : (
-              <>
-                <span>Get Started Free</span>
-                <Sparkles size={15} aria-hidden="true" />
-              </>
-            )}
-          </button>
-
-          <div className="auth-divider" aria-hidden="true">
-            <span className="auth-divider-label">or continue with</span>
-          </div>
-
-          <button
-            type="button"
-            className="command-button auth-google-btn"
-            disabled={isSubmitting}
-            onClick={() => {
-              setSubmitting(true);
-              setError(undefined);
-              void api
-                .googleSignIn()
-                .catch((requestError) => {
-                  setError(
-                    requestError instanceof ApiError
-                      ? requestError.message
-                      : 'Google sign-in is unavailable.',
-                  );
-                })
-                .finally(() => setSubmitting(false));
-            }}
-          >
-            <GoogleIcon />
-            <span>Continue with Google</span>
-          </button>
-
-          <div className="auth-trust-footer">
-            <ShieldCheck size={13} aria-hidden="true" />
-            <span>End-to-end encrypted session · Privacy-first storage</span>
-          </div>
-        </form>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </DialogFrame>
   );

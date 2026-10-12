@@ -237,6 +237,48 @@ describe('SearchBar', () => {
     );
   });
 
+  it('submits crawl query with global direction when selected in options drawer', async () => {
+    const onCrawl = vi.fn().mockResolvedValue(undefined);
+    useGraphStore.setState({ crawlStartingNodeIds: ['node-1'] });
+
+    render(<SearchBar onSearch={vi.fn()} onCrawl={onCrawl} />);
+
+    // Switch to Crawl mode
+    fireEvent.click(screen.getByRole('radio', { name: 'Crawl' }));
+
+    // Open options drawer
+    fireEvent.click(screen.getByRole('button', { name: 'Search options' }));
+
+    // Select direction: Global
+    const globalDirBtn = screen.getByRole('radio', {
+      name: /global/i,
+    });
+    fireEvent.click(globalDirBtn);
+
+    // Enter query
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'global crawl query' },
+    });
+
+    const crawlBtn = screen.getByRole('button', { name: 'Run' });
+    fireEvent.click(crawlBtn);
+
+    expect(onCrawl).toHaveBeenCalledWith(
+      'global crawl query',
+      'global',
+      'default',
+      'medium',
+      false,
+      undefined,
+      undefined,
+      expect.objectContaining({
+        enableDigs: true,
+        enableLinks: true,
+        enableJumps: true,
+      }),
+    );
+  });
+
   it('submits comparative crawl query with partitioned hypothesis seeds when comparative mode is enabled', async () => {
     const onCrawl = vi.fn().mockResolvedValue(undefined);
     useGraphStore.setState({
@@ -606,12 +648,18 @@ describe('SearchBar', () => {
       graph: {
         nodes: [
           { id: 'node-1', data: { title: 'Node 1' }, position: { x: 0, y: 0 } },
-          { id: 'node-2', data: { title: 'Node 2' }, position: { x: 50, y: 50 } },
+          {
+            id: 'node-2',
+            data: { title: 'Node 2' },
+            position: { x: 50, y: 50 },
+          },
         ],
         edges: [],
       } as any,
     });
-    render(<SearchBar onSearch={vi.fn()} onCrawl={vi.fn()} tier="REGISTERED" />);
+    render(
+      <SearchBar onSearch={vi.fn()} onCrawl={vi.fn()} tier="REGISTERED" />,
+    );
 
     // Switch to Crawl mode: defaults to all available nodes
     const crawlBtn = screen.getByRole('radio', { name: 'Crawl' });

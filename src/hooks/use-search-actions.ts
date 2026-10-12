@@ -12,6 +12,7 @@ import {
   type QueryType,
 } from '../store/graph-store';
 import type {
+  ActiveCrawlJob,
   CrawlDepth,
   CrawlDirection,
   CrawlProgressPayload,
@@ -63,6 +64,10 @@ export function useSearchActions({
 }: UseSearchActionsOptions) {
   const [queryForEdit, setQueryForEdit] = useState<string>();
   const [isCrawling, setIsCrawling] = useState(false);
+  const [activeCrawlJobs, setActiveCrawlJobs] = useState<ActiveCrawlJob[]>([]);
+  const [crawlNotification, setCrawlNotification] = useState<string | null>(
+    null,
+  );
   const [crawlStepProgress, setCrawlStepProgress] =
     useState<CrawlProgressPayload | null>(null);
 
@@ -87,6 +92,11 @@ export function useSearchActions({
     setCrawlStepProgress(null);
   }, []);
 
+  const cancelActiveCrawlJob = useCallback((jobIdToCancel: string) => {
+    void api.cancelCrawl(jobIdToCancel).catch(() => {});
+    setActiveCrawlJobs((prev) => prev.filter((j) => j.jobId !== jobIdToCancel));
+  }, []);
+
   async function search(
     query: string,
     sensitivity?: SearchSensitivity,
@@ -94,17 +104,20 @@ export function useSearchActions({
   ): Promise<void> {
     if (!graph) return;
     try {
-      setResults(
-        await api.search(
-          graph.id,
-          query,
-          useGraphStore.getState().selectedNodeIds,
-          sensitivity,
-          scope,
-        ),
+      const searchRes = await api.search(
+        graph.id,
+        query,
+        useGraphStore.getState().selectedNodeIds,
+        sensitivity,
+        scope,
       );
-      setHistory(await api.history());
-      setLimits(await api.limits());
+      setResults(searchRes);
+      const [history, limits] = await Promise.all([
+        api.history(),
+        api.limits(),
+      ]);
+      setHistory(history);
+      setLimits(limits);
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) {
         dialogs.open('auth');
@@ -160,9 +173,93 @@ export function useSearchActions({
         { signal: abortController.signal },
         crawlSettings,
       );
-      setCrawlResults(res);
-      setHistory(await api.history());
-      setLimits(await api.limits());
+
+      if (
+        res &&
+        'status' in res &&
+        (res.status === 'QUEUED' || res.status === 'PROCESSING')
+      ) {
+        const pollJobId = res.jobId || jobId;
+        const initialJob: ActiveCrawlJob = {
+          jobId: pollJobId,
+          graphId: graph.id,
+          queryText: query,
+          status: 'QUEUED',
+          progress: 10,
+          level: 0,
+          matchesCount: 0,
+          message: 'Queued for background crawl...',
+          createdAt: new Date().toISOString(),
+        };
+        setActiveCrawlJobs((prev) => [
+          initialJob,
+          ...prev.filter((j) => j.jobId !== pollJobId),
+        ]);
+        setCrawlNotification(
+          `Crawl "${query}" started in background. Track progress in History.`,
+        );
+
+        // Background watcher loop
+        void (async () => {
+          try {
+            let attempts = 0;
+            while (!abortController.signal.aborted && attempts < 150) {
+              attempts++;
+              await new Promise((resolve) => setTimeout(resolve, 800));
+              if (abortController.signal.aborted) break;
+              const jobState = await api.getCrawlJob(pollJobId, {
+                signal: abortController.signal,
+              });
+              if (jobState.status === 'COMPLETED' && jobState.result) {
+                setActiveCrawlJobs((prev) =>
+                  prev.filter((j) => j.jobId !== pollJobId),
+                );
+                const [updatedHistory, updatedLimits] = await Promise.all([
+                  api.history(),
+                  api.limits(),
+                ]);
+                setHistory(updatedHistory);
+                setLimits(updatedLimits);
+                setCrawlNotification(
+                  `Crawl "${query}" completed! Click in History to view on canvas.`,
+                );
+                break;
+              }
+              if (jobState.status === 'FAILED') {
+                setActiveCrawlJobs((prev) =>
+                  prev.map((j) =>
+                    j.jobId === pollJobId
+                      ? {
+                          ...j,
+                          status: 'FAILED',
+                          message: jobState.error || 'Crawl failed',
+                          error: jobState.error,
+                        }
+                      : j,
+                  ),
+                );
+                break;
+              }
+              if (jobState.status === 'CANCELLED') {
+                setActiveCrawlJobs((prev) =>
+                  prev.filter((j) => j.jobId !== pollJobId),
+                );
+                break;
+              }
+            }
+          } catch {
+            // Background polling non-blocking
+          }
+        })();
+      } else if (res && 'nodes' in res) {
+        setCrawlResults(res);
+        const [history, limits] = await Promise.all([
+          api.history(),
+          api.limits(),
+        ]);
+        setHistory(history);
+        setLimits(limits);
+      }
     } catch (requestError) {
       if ((requestError as any)?.name === 'AbortError') {
         return;
@@ -263,6 +360,32 @@ export function useSearchActions({
   const handleCrawlProgress = useCallback(
     (progress: CrawlProgressPayload) => {
       setCrawlStepProgress(progress);
+      setActiveCrawlJobs((prev) =>
+        prev.map((j) => {
+          if (j.graphId === progress.graphId) {
+            const pct =
+              progress.status === 'completed'
+                ? 100
+                : Math.min(
+                    95,
+                    Math.max(15, Math.round(((progress.level ?? 1) / 6) * 100)),
+                  );
+            return {
+              ...j,
+              status:
+                progress.status === 'completed' ? 'COMPLETED' : 'PROCESSING',
+              level: progress.level,
+              matchesCount:
+                progress.matchesCount ??
+                progress.totalMatches ??
+                j.matchesCount,
+              progress: pct,
+              message: progress.message || `Level ${progress.level} explored`,
+            };
+          }
+          return j;
+        }),
+      );
       if (
         progress.currentNodes &&
         progress.currentNodes.length > 0 &&
@@ -303,6 +426,10 @@ export function useSearchActions({
     queryForEdit,
     setQueryForEdit,
     isCrawling,
+    activeCrawlJobs,
+    cancelActiveCrawlJob,
+    crawlNotification,
+    setCrawlNotification,
     crawlStepProgress,
     setCrawlStepProgress,
     handleCancelCrawl,

@@ -517,4 +517,46 @@ describe('HistoryDrawer', () => {
     expect(screen.getByText('ACID Properties Overview')).toBeInTheDocument();
     expect(screen.getByText('btree index performance')).toBeInTheDocument();
   });
+
+  it('renders ongoing crawl jobs with progress bar, level details, and cancel action', () => {
+    const handleCancel = vi.fn();
+    const activeJobs = [
+      {
+        jobId: 'job-crawl-42',
+        graphId: 'graph-1',
+        queryText: 'deep graph exploration query',
+        status: 'PROCESSING' as const,
+        progress: 45,
+        level: 2,
+        matchesCount: 6,
+        message: 'Exploring frontier level 2',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(
+      <HistoryDrawer
+        entries={[]}
+        activeCrawlJobs={activeJobs}
+        onCancelCrawlJob={handleCancel}
+        onRestore={vi.fn()}
+        onEdit={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText('Pending & Ongoing Crawls (1)'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('deep graph exploration query'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Crawling...')).toBeInTheDocument();
+    expect(screen.getByText('Exploring frontier level 2')).toBeInTheDocument();
+
+    const cancelBtn = screen.getByLabelText('Cancel crawl');
+    expect(cancelBtn).toBeInTheDocument();
+    fireEvent.click(cancelBtn);
+    expect(handleCancel).toHaveBeenCalledWith('job-crawl-42');
+  });
 });

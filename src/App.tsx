@@ -9,10 +9,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AdConsentBanner } from './components/ads/ad-consent-banner';
 import { CanvasWelcomeHub } from './components/canvas/canvas-welcome-hub';
 import { CrawlResultsCanvas } from './components/canvas/crawl-results-canvas';
 import { GraphCanvas } from './components/canvas/graph-canvas';
-import { AdConsentBanner } from './components/ads/ad-consent-banner';
 import { AuthDialog } from './components/dialogs/auth-dialog';
 import { ConfirmationDialog } from './components/dialogs/confirmation-dialog';
 import { CopyGraphDialog } from './components/dialogs/copy-graph-dialog';
@@ -136,6 +136,7 @@ export function App() {
     progress?: number;
     message: string;
   } | null>(null);
+  const [activationBanner, setActivationBanner] = useState<string | null>(null);
   const ingestionToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -144,6 +145,12 @@ export function App() {
   useEffect(() => {
     setWelcomeDismissed(false);
   }, [graph?.id]);
+
+  useEffect(() => {
+    if (!activationBanner) return;
+    const timer = setTimeout(() => setActivationBanner(null), 6000);
+    return () => clearTimeout(timer);
+  }, [activationBanner]);
 
   useEffect(() => {
     return () => {
@@ -158,6 +165,53 @@ export function App() {
       setMaintenanceState({ active, message });
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const isVerified = params.get('verified') === 'true';
+    const verifyToken = params.get('token');
+
+    if (isVerified) {
+      setActivationBanner(
+        'Your account has been activated successfully! You can now log in.',
+      );
+      params.delete('verified');
+      const newSearch = params.toString();
+      const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', newUrl);
+      void api.session().then((nextIdentity) => {
+        if (nextIdentity && !nextIdentity.isGuest) {
+          setIdentity(nextIdentity);
+        }
+      });
+    } else if (
+      verifyToken &&
+      (window.location.pathname.includes('verify-email') ||
+        params.has('verify'))
+    ) {
+      void api
+        .verifyEmail(verifyToken)
+        .then(() => {
+          setActivationBanner(
+            'Your account has been activated successfully! You can now log in.',
+          );
+          params.delete('token');
+          params.delete('verify');
+          const newSearch = params.toString();
+          const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}${window.location.hash}`;
+          window.history.replaceState({}, '', newUrl);
+          void api.session().then((nextIdentity) => {
+            if (nextIdentity && !nextIdentity.isGuest) {
+              setIdentity(nextIdentity);
+            }
+          });
+        })
+        .catch(() => {
+          setError('Activation link has expired or is invalid.');
+        });
+    }
+  }, [setIdentity, setError]);
 
   useEffect(() => {
     if (
@@ -257,6 +311,10 @@ export function App() {
   const {
     queryForEdit,
     isCrawling,
+    activeCrawlJobs,
+    cancelActiveCrawlJob,
+    crawlNotification,
+    setCrawlNotification,
     crawlStepProgress,
     handleCancelCrawl,
     handleCrawlProgress,
@@ -556,6 +614,8 @@ export function App() {
         ) : null}
         <HistoryDrawer
           entries={history}
+          activeCrawlJobs={activeCrawlJobs}
+          onCancelCrawlJob={cancelActiveCrawlJob}
           onRestore={restoreHistory}
           onEdit={editHistory}
           onRerun={rerunHistory}
@@ -659,6 +719,30 @@ export function App() {
           )}
           <span>{ingestionToast.message}</span>
         </div>
+      ) : null}
+      {crawlNotification ? (
+        <button
+          type="button"
+          className="source-ingestion-toast is-ready overlay-interactive"
+          role="status"
+          aria-live="polite"
+          onClick={() => setCrawlNotification(null)}
+        >
+          <span className="toast-check-icon">✓</span>
+          <span>{crawlNotification}</span>
+        </button>
+      ) : null}
+      {activationBanner ? (
+        <button
+          type="button"
+          className="source-ingestion-toast is-ready overlay-interactive"
+          role="status"
+          aria-live="polite"
+          onClick={() => setActivationBanner(null)}
+        >
+          <span className="toast-check-icon">✓</span>
+          <span>{activationBanner}</span>
+        </button>
       ) : null}
       {isLoading ? (
         <div className="page-status">Loading knowledge map...</div>

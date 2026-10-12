@@ -25,6 +25,8 @@ vi.mock('../../lib/api', () => ({
     login: vi.fn(),
     register: vi.fn(),
     googleSignIn: vi.fn(),
+    sendVerificationEmail: vi.fn(),
+    verifyEmail: vi.fn(),
   },
 }));
 
@@ -34,6 +36,7 @@ const mockIdentity: Identity = {
   username: 'Marie Curie',
   isGuest: false,
   tier: 'REGISTERED',
+  emailVerified: true,
 };
 
 describe('AuthDialog', () => {
@@ -244,6 +247,157 @@ describe('AuthDialog', () => {
 
     await waitFor(() => {
       expect(api.googleSignIn).toHaveBeenCalled();
+    });
+  });
+
+  it('shows activation notice when registering an unverified account', async () => {
+    vi.mocked(api.register).mockResolvedValueOnce({
+      identity: { ...mockIdentity, emailVerified: false },
+      token: 'fake-token',
+    });
+    vi.mocked(api.sendVerificationEmail).mockResolvedValueOnce({
+      status: true,
+    });
+    const onAuthenticated = vi.fn();
+    const onOpenChange = vi.fn();
+
+    render(
+      <AuthDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        onAuthenticated={onAuthenticated}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/full name/i), {
+      target: { value: 'Marie Curie' },
+    });
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: 'marie@curie.org' },
+    });
+    fireEvent.change(screen.getByLabelText(/^password$/i), {
+      target: { value: 'secretpass123' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /get started free/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Activate Your Account')).toBeInTheDocument();
+      expect(
+        screen.getByText(/We sent an activation link to/i),
+      ).toBeInTheDocument();
+      expect(onAuthenticated).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    const resendBtn = screen.getByRole('button', {
+      name: /resend activation email/i,
+    });
+    fireEvent.click(resendBtn);
+
+    await waitFor(() => {
+      expect(api.sendVerificationEmail).toHaveBeenCalledWith('marie@curie.org');
+      expect(screen.getByText('Activation link resent!')).toBeInTheDocument();
+    });
+  });
+
+  it('shows unverified error and resend action when logging into an unverified account', async () => {
+    vi.mocked(api.login).mockRejectedValueOnce(
+      new ApiError('Please verify your email before logging in.', 403),
+    );
+    vi.mocked(api.sendVerificationEmail).mockResolvedValueOnce({
+      status: true,
+    });
+
+    render(
+      <AuthDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        onAuthenticated={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: /log in/i }));
+
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: 'unverified@curie.org' },
+    });
+    fireEvent.change(screen.getByLabelText(/^password$/i), {
+      target: { value: 'secretpass123' },
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /log in to workspace/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Please verify your email before logging in/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /resend activation link/i }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /resend activation link/i }),
+    );
+
+    await waitFor(() => {
+      expect(api.sendVerificationEmail).toHaveBeenCalledWith(
+        'unverified@curie.org',
+      );
+      expect(screen.getByText('Resent!')).toBeInTheDocument();
+    });
+  });
+
+  it('displays rate limit error message when resending activation email exceeds limits', async () => {
+    vi.mocked(api.register).mockResolvedValueOnce({
+      identity: { ...mockIdentity, emailVerified: false },
+      token: 'fake-token',
+    });
+    vi.mocked(api.sendVerificationEmail).mockRejectedValueOnce(
+      new ApiError(
+        'Too many verification email requests. Please wait before requesting another activation link.',
+        429,
+      ),
+    );
+
+    render(
+      <AuthDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        onAuthenticated={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/full name/i), {
+      target: { value: 'Marie Curie' },
+    });
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: 'marie@curie.org' },
+    });
+    fireEvent.change(screen.getByLabelText(/^password$/i), {
+      target: { value: 'secretpass123' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /get started free/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Activate Your Account')).toBeInTheDocument();
+    });
+
+    const resendBtn = screen.getByRole('button', {
+      name: /resend activation email/i,
+    });
+    fireEvent.click(resendBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          'Too many verification email requests. Please wait before requesting another activation link.',
+        ),
+      ).toBeInTheDocument();
     });
   });
 });

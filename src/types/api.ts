@@ -143,6 +143,7 @@ export type Identity = {
   storageLimitMb?: number | null;
   creditsBalance?: number;
   userMultiplier?: number;
+  emailVerified?: boolean;
 };
 
 export type GraphPermission = 'OWNER' | 'VIEWER';
@@ -262,7 +263,7 @@ export type SearchChunk = {
 export type SearchSensitivity = 'low' | 'medium' | 'high';
 export type SearchScope = 'narrow' | 'normal' | 'wide';
 
-export type CrawlDirection = 'forward' | 'backward' | 'both';
+export type CrawlDirection = 'forward' | 'backward' | 'both' | 'global';
 export type CrawlDepth = 'shallow' | 'default' | 'deep' | 'unlimited';
 export type CrawlMatchType = 'seed' | 'dig' | 'link' | 'jump';
 
@@ -383,6 +384,39 @@ export type CancelCrawlResponse = {
   jobId: string;
   cancelled: boolean;
   message: string;
+};
+
+export type CrawlJobStatus =
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type CrawlJobResponse = {
+  jobId: string;
+  status: CrawlJobStatus;
+  graphId?: string;
+  message?: string;
+  result?: CrawlResponse;
+  error?: string;
+  createdAt?: string;
+  completedAt?: string;
+};
+
+export type ActiveCrawlJob = {
+  jobId: string;
+  graphId: string;
+  queryText: string;
+  status: CrawlJobStatus;
+  progress?: number;
+  level?: number;
+  maxLevel?: number;
+  matchesCount?: number;
+  message?: string;
+  createdAt: string;
+  error?: string;
+  result?: CrawlResponse;
 };
 
 export type SearchResponse = {
